@@ -26,6 +26,7 @@ add_subdirectory(core)
 if(VF_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+    add_subdirectory(tools)
 endif()
 
 # ---------------------------------------------------------------------------

@@ -53,7 +53,7 @@ namespace ParamID
 inline constexpr std::array<const char*, 3> channelNames   { "Channel 1", "Channel 2", "Channel 3" };
 inline constexpr std::array<const char*, 8> tubeSwapNames  { "Stock", "EL34", "6L6", "EL84", "6550", "KT88", "6V6", "5881" };
 
-inline constexpr float lastAmpModel = static_cast<float> (models::AmpModelId::count) - 1.0f;
+inline constexpr float lastAmpModel = static_cast<float> (models::kNumAmpModels) - 1.0f;
 inline constexpr float lastCabModel = static_cast<float> (dsp::CabModel::count) - 1.0f;
 inline constexpr float defaultAmpModel = static_cast<float> (models::AmpModelId::Plate59Lead);
 inline constexpr float defaultCabModel = static_cast<float> (dsp::CabModel::Greenback4x12);
