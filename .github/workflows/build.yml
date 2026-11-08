@@ -17,7 +17,7 @@ jobs:
             os: ubuntu-24.04
             generator: Ninja
           - name: macOS
-            os: macos-14
+            os: macos-latest   # macos-14 was retired by GitHub in late 2026
             generator: Ninja
           - name: Windows
             os: windows-2022
