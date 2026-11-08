@@ -17,7 +17,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ViridianForgeProcessor::crea
 
     for (const auto& p : parameterSpecs)
     {
-        const juce::ParameterID id { p.id, 1 };
+        const juce::ParameterID id { p.id, p.version };
         switch (p.kind)
         {
             case ParamKind::Bool:
@@ -27,9 +27,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ViridianForgeProcessor::crea
             case ParamKind::Choice:
             {
                 juce::StringArray choices;
-                if (juce::String (p.id) == ParamID::channel)        choices = toStringArray (channelNames);
-                else if (juce::String (p.id) == ParamID::powerTube) choices = toStringArray (powerTubeNames);
-                else if (juce::String (p.id) == ParamID::toneStack) choices = toStringArray (toneStackNames);
+                const juce::String pid (p.id);
+                if (pid == ParamID::channel)       choices = toStringArray (channelNames);
+                else if (pid == ParamID::tubeSwap) choices = toStringArray (tubeSwapNames);
+                else if (pid == ParamID::cabModel) choices = toStringArray (vf::dsp::cabModelNames);
+                else if (pid == ParamID::ampModel)
+                    for (const auto& m : vf::models::ampModels()) choices.add (m.name);
                 layout.add (std::make_unique<juce::AudioParameterChoice> (id, p.name, choices, static_cast<int> (p.defaultValue)));
                 break;
             }
@@ -62,12 +65,13 @@ ViridianForgeProcessor::ViridianForgeProcessor()
         return v;
     };
 
-    raw.inputGain = get (ParamID::inputGain);   raw.gateOn = get (ParamID::gateEnabled); raw.gateThresh = get (ParamID::gateThreshold);
-    raw.channel = get (ParamID::channel);       raw.boost = get (ParamID::boost);        raw.gain = get (ParamID::gain);
-    raw.bass = get (ParamID::bass);             raw.middle = get (ParamID::middle);      raw.treble = get (ParamID::treble);
-    raw.presence = get (ParamID::presence);     raw.resonance = get (ParamID::resonance); raw.master = get (ParamID::master);
-    raw.bright = get (ParamID::bright);         raw.deep = get (ParamID::deep);          raw.powerTube = get (ParamID::powerTube);
-    raw.toneStack = get (ParamID::toneStack);   raw.cabOn = get (ParamID::cabEnabled);   raw.outLevel = get (ParamID::outputLevel);
+    raw.inputGain = get (ParamID::inputGain);   raw.gateOn = get (ParamID::gateEnabled);  raw.gateThresh = get (ParamID::gateThreshold);
+    raw.ampModel = get (ParamID::ampModel);     raw.channel = get (ParamID::channel);     raw.boost = get (ParamID::boost);
+    raw.gain = get (ParamID::gain);             raw.bass = get (ParamID::bass);           raw.middle = get (ParamID::middle);
+    raw.treble = get (ParamID::treble);         raw.presence = get (ParamID::presence);   raw.resonance = get (ParamID::resonance);
+    raw.master = get (ParamID::master);         raw.bright = get (ParamID::bright);       raw.deep = get (ParamID::deep);
+    raw.tubeSwap = get (ParamID::tubeSwap);     raw.cabOn = get (ParamID::cabEnabled);    raw.cabModel = get (ParamID::cabModel);
+    raw.micPos = get (ParamID::micPosition);    raw.micDist = get (ParamID::micDistance); raw.outLevel = get (ParamID::outputLevel);
 
     if (! apvts.state.hasProperty ("theme"))
         apvts.state.setProperty ("theme", "dark", nullptr);
@@ -93,9 +97,12 @@ void ViridianForgeProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     setLatencySamples (juce::roundToInt (oversampling->getLatencyInSamples()));
 
     const double osRate = sampleRate * (1 << oversamplingFactorLog2);
+    amp.setSettings (readAmpSettings()); // configure directly (no switch fade on the first block)
     amp.prepare (osRate, maxChunk << oversamplingFactorLog2);
-    amp.setSettings (readAmpSettings());
     gate.prepare (sampleRate);
+    cabinet.prepare (sampleRate);
+    cabMix.reset (sampleRate, 0.02);
+    cabMix.setCurrentAndTargetValue (raw.cabOn->load() > 0.5f ? 1.0f : 0.0f);
     tuner.prepare (sampleRate);
 
     inputGain.reset (sampleRate, 0.03);
@@ -109,6 +116,9 @@ void ViridianForgeProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 vf::dsp::AmpSettings ViridianForgeProcessor::readAmpSettings() const noexcept
 {
     vf::dsp::AmpSettings s;
+    s.model = juce::jlimit (0, vf::models::numAmpModels() - 1, juce::roundToInt (raw.ampModel->load()));
+    s.channel = juce::jlimit (0, 2, juce::roundToInt (raw.channel->load()));
+    s.tubeSwap = juce::roundToInt (raw.tubeSwap->load()) - 1; // 0 = Stock → -1
     s.gain = raw.gain->load();
     s.bass = raw.bass->load();
     s.middle = raw.middle->load();
@@ -119,10 +129,6 @@ vf::dsp::AmpSettings ViridianForgeProcessor::readAmpSettings() const noexcept
     s.bright = raw.bright->load() > 0.5f;
     s.deep = raw.deep->load() > 0.5f;
     s.boost = raw.boost->load() > 0.5f;
-    s.channel = static_cast<vf::dsp::AmpChannel> (juce::jlimit (0, 2, juce::roundToInt (raw.channel->load())));
-    s.tube = static_cast<vf::dsp::PowerTube> (juce::jlimit (0, 6, juce::roundToInt (raw.powerTube->load())));
-    s.toneStack = static_cast<vf::dsp::ToneStackVoicing> (juce::jlimit (0, 3, juce::roundToInt (raw.toneStack->load())));
-    s.cabEnabled = raw.cabOn->load() > 0.5f;
     return s;
 }
 
@@ -144,6 +150,10 @@ void ViridianForgeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     amp.setSettings (readAmpSettings());
     gate.setEnabled (raw.gateOn->load() > 0.5f);
     gate.setThresholdDb (raw.gateThresh->load());
+    cabinet.setParams (static_cast<vf::dsp::CabModel> (juce::jlimit (0, static_cast<int> (vf::dsp::CabModel::count) - 1, juce::roundToInt (raw.cabModel->load()))),
+                       raw.micPos->load() / 10.0f, raw.micDist->load() / 10.0f);
+    cabinet.update();
+    cabMix.setTargetValue (raw.cabOn->load() > 0.5f ? 1.0f : 0.0f);
     inputGain.setTargetValue (juce::Decibels::decibelsToGain (raw.inputGain->load()));
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (raw.outLevel->load()));
 
@@ -182,6 +192,14 @@ void ViridianForgeProcessor::processMonoChunk (float* data, int numSamples) noex
     auto upBlock = oversampling->processSamplesUp (block);
     amp.process (upBlock.getChannelPointer (0), static_cast<int> (upBlock.getNumSamples()));
     oversampling->processSamplesDown (block);
+
+    // Cabinet always runs so switching it on/off is a click-free crossfade.
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float dry = mono[i];
+        const float wet = cabinet.process (dry);
+        mono[i] = dry + cabMix.getNextValue() * (wet - dry);
+    }
 
     float outPeak = 0.0f;
     for (int i = 0; i < numSamples; ++i)

@@ -101,12 +101,27 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s)
       bright (s, vf::ParamID::bright, "Bright"),
       deep (s, vf::ParamID::deep, "Deep"),
       boost (s, vf::ParamID::boost, "Boost"),
-      powerTube (s, vf::ParamID::powerTube, "Power tubes"),
-      toneStack (s, vf::ParamID::toneStack, "Voicing")
+      model (s, vf::ParamID::ampModel),
+      tubeSwap (s, vf::ParamID::tubeSwap, "Power tubes")
 {
     for (auto* c : std::initializer_list<Component*> { &channel, &gain, &bass, &middle, &treble, &presence, &resonance, &master,
-                                                       &bright, &deep, &boost, &powerTube, &toneStack })
+                                                       &bright, &deep, &boost, &model, &tubeSwap })
         addAndMakeVisible (c);
+
+    model.onModelChanged = [this] (int index) { modelChanged (index); };
+    modelChanged (model.getModel());
+}
+
+void AmpHeadPanel::modelChanged (int index)
+{
+    const auto& spec = vf::models::getAmpModel (index);
+    StringArray names;
+    for (int i = 0; i < spec.numChannels; ++i)
+        names.add (spec.channels[static_cast<size_t> (i)].name);
+    channel.setChannelNames (names);
+    badgeName = String (spec.name).toUpperCase();
+    badgeCategory = vf::models::categoryName (spec.category);
+    repaint();
 }
 
 Rectangle<float> AmpHeadPanel::faceplateArea() const
@@ -156,8 +171,11 @@ void AmpHeadPanel::paint (Graphics& g)
     g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.48f).withExtraKerningFactor (0.18f));
     g.drawText ("VIRIDIAN", badge.withTrimmedBottom (badge.getHeight() * 0.25f), Justification::centred);
     g.setColour (Colour (vf::brand::brushedSteel));
-    g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.18f).withExtraKerningFactor (0.45f));
-    g.drawText ("F O R G E   1 0 0", badge.withTrimmedTop (badge.getHeight() * 0.62f), Justification::centred);
+    g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.17f).withExtraKerningFactor (0.25f));
+    g.drawFittedText (badgeName, badge.withTrimmedTop (badge.getHeight() * 0.6f).reduced (8.0f, 0.0f).toNearestInt(), Justification::centred, 1);
+    g.setColour (Colour (vf::brand::brushedSteel).withAlpha (0.75f));
+    g.setFont (ViridianLookAndFeel::labelFont (11.0f, false).withExtraKerningFactor (0.3f));
+    g.drawText (badgeCategory.toUpperCase(), Rectangle<float> (badge.getX() - 60.0f, badge.getBottom() + 8.0f, badge.getWidth() + 120.0f, 16.0f), Justification::centred);
 
     // Faceplate (brushed metal)
     auto plate = faceplateArea();
@@ -195,8 +213,8 @@ void AmpHeadPanel::resized()
     bright.setBounds (top.removeFromLeft (sw));
     deep.setBounds (top.removeFromLeft (sw));
     top.removeFromLeft (12);
-    toneStack.setBounds (top.removeFromLeft (top.getWidth() / 2).reduced (4, 0));
-    powerTube.setBounds (top.reduced (4, 0));
+    model.setBounds (top.removeFromLeft (top.getWidth() * 62 / 100).reduced (4, 0));
+    tubeSwap.setBounds (top.reduced (4, 0));
 
     // Knob row
     plate.removeFromTop (6);
@@ -231,45 +249,83 @@ void IOPanel::resized()
 }
 
 //==============================================================================
-CabPanel::CabPanel (APVTS& s) : cabOn (s, vf::ParamID::cabEnabled, "Cab")
+CabPanel::CabPanel (APVTS& s)
+    : cabOn (s, vf::ParamID::cabEnabled, "Cab"),
+      cabModel (s, vf::ParamID::cabModel, "Cabinet"),
+      micPosition (s, vf::ParamID::micPosition, "Mic Pos"),
+      micDistance (s, vf::ParamID::micDistance, "Distance")
 {
-    addAndMakeVisible (cabOn);
+    for (auto* c : std::initializer_list<Component*> { &cabOn, &cabModel, &micPosition, &micDistance })
+        addAndMakeVisible (c);
+    micPosition.getSlider().setTooltip ("Mic position: 0 = cone centre (bright), 10 = cone edge (dark)");
+    micDistance.getSlider().setTooltip ("Mic distance: 0 = on the grille (more bass), 10 = further back");
+
+    modelWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::cabModel), [this] (float v)
+    {
+        currentCab = roundToInt (v);
+        repaint();
+    });
+    modelWatch->sendInitialUpdate();
+}
+
+Rectangle<float> CabPanel::cabArea() const
+{
+    auto r = getLocalBounds().toFloat().reduced (14.0f);
+    r.removeFromTop (78.0f);                       // title + selector
+    r.removeFromBottom (r.getHeight() * 0.36f);    // mic knobs + note
+    return r.withSizeKeepingCentre (jmin (r.getWidth(), r.getHeight() * 1.1f), r.getHeight());
 }
 
 void CabPanel::paint (Graphics& g)
 {
     const auto t = themeOf (*this);
-    auto r = getLocalBounds().toFloat();
-    drawPanelBackground (g, r, t, "CABINET");
+    drawPanelBackground (g, getLocalBounds().toFloat(), t, "CABINET");
 
-    auto cab = r.reduced (14.0f).withTrimmedTop (16.0f).withTrimmedBottom (34.0f);
-    cab = cab.withSizeKeepingCentre (jmin (cab.getWidth(), cab.getHeight() * 1.05f), cab.getHeight());
+    const String name (vf::dsp::cabModelNames[static_cast<size_t> (jlimit (0, (int) vf::dsp::CabModel::count - 1, currentCab))]);
+    const int speakers = name.startsWith ("4") ? 4 : (name.startsWith ("2") ? 2 : 1);
+    const bool tens = name.contains ("x10");
+
+    auto cab = cabArea();
+    if (speakers == 1) cab = cab.withSizeKeepingCentre (cab.getWidth() * 0.8f, cab.getHeight() * 0.8f);
+    if (speakers == 2) cab = cab.withSizeKeepingCentre (cab.getWidth(), cab.getHeight() * 0.62f);
     g.setColour (t.tolex);
     g.fillRoundedRectangle (cab, 8.0f);
     auto cloth = cab.reduced (cab.getWidth() * 0.06f);
     g.setColour (t.grille);
     g.fillRoundedRectangle (cloth, 4.0f);
 
-    // 4x12 speaker outlines behind the cloth
-    const float d = jmin (cloth.getWidth(), cloth.getHeight()) * 0.44f;
+    const float d = jmin (cloth.getWidth(), cloth.getHeight()) * (speakers == 1 ? 0.78f : (speakers == 2 ? 0.8f : 0.44f)) * (tens ? 0.85f : 1.0f);
     g.setColour (Colours::black.withAlpha (0.22f));
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < speakers; ++i)
     {
-        const float cx = cloth.getX() + cloth.getWidth() * (i % 2 == 0 ? 0.27f : 0.73f);
-        const float cy = cloth.getY() + cloth.getHeight() * (i < 2 ? 0.27f : 0.73f);
+        float cx = cloth.getCentreX(), cy = cloth.getCentreY();
+        if (speakers == 2) cx = cloth.getX() + cloth.getWidth() * (i == 0 ? 0.27f : 0.73f);
+        if (speakers == 4)
+        {
+            cx = cloth.getX() + cloth.getWidth() * (i % 2 == 0 ? 0.27f : 0.73f);
+            cy = cloth.getY() + cloth.getHeight() * (i < 2 ? 0.27f : 0.73f);
+        }
         g.drawEllipse (cx - d / 2, cy - d / 2, d, d, 2.0f);
         g.fillEllipse (cx - d * 0.1f, cy - d * 0.1f, d * 0.2f, d * 0.2f);
     }
 
     g.setColour (t.textDim);
     g.setFont (ViridianLookAndFeel::labelFont (10.0f, false));
-    g.drawFittedText ("Built-in 4x12 response.  IR loader + mics: Phase 3",
-                      getLocalBounds().reduced (10).removeFromBottom (14), Justification::centred, 1);
+    g.drawFittedText (String ("Speaker voice: ") + vf::dsp::getCabinetSpec (static_cast<vf::dsp::CabModel> (jlimit (0, (int) vf::dsp::CabModel::count - 1, currentCab))).speaker
+                      + ".  IR loader: Phase 3", getLocalBounds().reduced (10).removeFromBottom (24), Justification::centred, 2);
 }
 
 void CabPanel::resized()
 {
-    cabOn.setBounds (getLocalBounds().reduced (10).removeFromTop (34).removeFromRight (64));
+    auto r = getLocalBounds().reduced (10);
+    auto header = r.removeFromTop (34);
+    cabOn.setBounds (header.removeFromRight (64));
+    cabModel.setBounds (r.removeFromTop (40).reduced (2, 0));
+    r.removeFromBottom (26);
+    const auto cab = cabArea();
+    auto knobs = r.withTop (roundToInt (cab.getBottom()) + 4);
+    micPosition.setBounds (knobs.removeFromLeft (knobs.getWidth() / 2).reduced (4, 0));
+    micDistance.setBounds (knobs.reduced (4, 0));
 }
 
 //==============================================================================

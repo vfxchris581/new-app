@@ -1,4 +1,5 @@
 #include "Widgets.h"
+#include "vf/models/AmpModels.h"
 
 using namespace juce;
 
@@ -96,7 +97,61 @@ ChannelSelector::ChannelSelector (APVTS& state, const String& paramId)
 
 void ChannelSelector::select (int index)
 {
-    attachment->setValueAsCompleteGesture ((float) index);
+    if (index < available)
+        attachment->setValueAsCompleteGesture ((float) index);
+}
+
+void ChannelSelector::setChannelNames (const StringArray& names)
+{
+    available = jlimit (1, buttons.size(), names.size());
+    for (int i = 0; i < buttons.size(); ++i)
+    {
+        const bool exists = i < available;
+        buttons[i]->setButtonText (exists ? names[i].toUpperCase() : String ("-"));
+        buttons[i]->setEnabled (exists);
+        buttons[i]->setAlpha (exists ? 1.0f : 0.35f);
+    }
+    repaint();
+}
+
+//==============================================================================
+AmpModelSelector::AmpModelSelector (APVTS& state, const String& paramId)
+{
+    using namespace vf::models;
+    for (int cat = 0; cat < static_cast<int> (AmpCategory::count); ++cat)
+    {
+        bool headingAdded = false;
+        for (int m = 0; m < numAmpModels(); ++m)
+        {
+            const auto& spec = getAmpModel (m);
+            if (static_cast<int> (spec.category) != cat) continue;
+            if (! headingAdded) { box.addSectionHeading (categoryName (spec.category)); headingAdded = true; }
+            box.addItem (spec.name, m + 1);
+        }
+    }
+    box.setTooltip ("Amp model");
+    addAndMakeVisible (box);
+    caption.setText ("AMP", dontSendNotification);
+    caption.setJustificationType (Justification::centredLeft);
+    addAndMakeVisible (caption);
+
+    attachment = std::make_unique<ParameterAttachment> (*state.getParameter (paramId), [this] (float v)
+    {
+        current = roundToInt (v);
+        box.setSelectedId (current + 1, dontSendNotification);
+        box.setTooltip (String ("Inspired by ") + vf::models::getAmpModel (current).inspiredBy
+                        + ". Names are trademarks of their owners; no affiliation implied.");
+        if (onModelChanged) onModelChanged (current);
+    });
+    box.onChange = [this] { if (box.getSelectedId() > 0) attachment->setValueAsCompleteGesture ((float) (box.getSelectedId() - 1)); };
+    attachment->sendInitialUpdate();
+}
+
+void AmpModelSelector::resized()
+{
+    auto r = getLocalBounds();
+    caption.setBounds (r.removeFromTop (r.getHeight() / 3));
+    box.setBounds (r);
 }
 
 void ChannelSelector::paint (Graphics& g)

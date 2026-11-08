@@ -1,9 +1,8 @@
 // Viridian Forge — DSP core (JUCE-independent)
 //
-// Static-curve tube stage models used by the Phase 1 reference amp voice.
-// These are deliberately simple, *original* waveshaping models with
-// frequency shaping around them; Phase 2 replaces/extends them with
-// stateful triode (Koren-style) and push-pull power-stage models.
+// Power-amp model: push-pull output stage with tube-type profiles, supply sag,
+// negative-feedback-dependent presence/resonance, and a solid-state mode.
+// (Preamp triodes are circuit-solved in Triode.h.)
 #pragma once
 
 #include "Biquad.h"
@@ -19,38 +18,6 @@ inline float asymmetricClip (float x, float posHardness, float negHardness) noex
     return x >= 0.0f ? std::tanh (x * posHardness) / posHardness
                      : std::tanh (x * negHardness) / negHardness;
 }
-
-/** One triode gain stage: cathode-bypass emphasis → bias + asymmetric clip
-    → DC block → Miller-capacitance roll-off. */
-class TriodeStage
-{
-public:
-    void prepare (double sampleRate, double millerCutoffHz = 9000.0, double cathodeShelfHz = 650.0, double cathodeShelfDb = 4.0)
-    {
-        fs = sampleRate;
-        cathode.setCoeffs (BiquadCoeffs::lowShelf (fs, cathodeShelfHz, 0.6, -cathodeShelfDb)); // bypass cap: lows get less gain
-        miller.setCoeffs (BiquadCoeffs::lowPass (fs, millerCutoffHz, 0.6));
-        dc.prepare (fs);
-        reset();
-    }
-
-    void reset() { cathode.reset(); miller.reset(); dc.reset(); }
-
-    void setBias (float b) noexcept { bias = b; biasOffset = asymmetricClip (bias, 1.0f, 1.6f); }
-
-    float process (float x, float drive) noexcept
-    {
-        const float pre = cathode.process (x) * drive;
-        const float y = asymmetricClip (pre + bias, 1.0f, 1.6f) - biasOffset;
-        return miller.process (dc.process (y));
-    }
-
-private:
-    double fs = 48000.0;
-    Biquad cathode, miller;
-    DcBlocker dc;
-    float bias = 0.12f, biasOffset = asymmetricClip (0.12f, 1.0f, 1.6f);
-};
 
 /** Power tube families. Values are original voicing choices that capture the
     commonly described character of each tube type, not measured data. */
@@ -108,30 +75,59 @@ public:
         sagAttack = static_cast<float> (std::exp (-1.0 / (0.004 * fs)));
     }
 
-    /** 0..1 knob positions. */
+    /** Circuit character from the amp model.
+        nfb: amount of global negative feedback (0 = none, as in Class A amps with a Cut control).
+        sagMul: supply sag scaling (tube rectifier > 1, solid-state rectifier < 1).
+        headroom: >1 = bigger, cleaner power section.  solidState: transistor power amp. */
+    void setCharacter (float nfbAmount, float sagMultiplier, float headroomAmount, bool isSolidState)
+    {
+        nfb = nfbAmount; sagMul = sagMultiplier; headroomScale = headroomAmount; solidState = isSolidState;
+        setPresenceResonance (lastPresence, lastResonance);
+    }
+
+    /** 0..1 knob positions. With feedback, presence/resonance reduce the feedback at the
+        top/bottom (more gain there). With no feedback, presence acts as a Cut control. */
     void setPresenceResonance (float presence01, float resonance01)
     {
-        presence.setCoeffs (BiquadCoeffs::highShelf (fs, 3500.0, 0.7, -3.0 + 9.0 * presence01));
-        resonance.setCoeffs (BiquadCoeffs::lowShelf (fs, 95.0, 0.9, -2.0 + 8.0 * resonance01));
+        lastPresence = presence01; lastResonance = resonance01;
+        if (nfb < 0.1f)
+        {
+            presence.setCoeffs (BiquadCoeffs::highShelf (fs, 2800.0, 0.7, -9.0 + 10.0 * presence01));
+            resonance.setCoeffs (BiquadCoeffs::lowShelf (fs, 110.0, 0.8, -1.0 + 3.0 * resonance01));
+        }
+        else
+        {
+            const double range = 4.0 + 8.0 * nfb;
+            presence.setCoeffs (BiquadCoeffs::highShelf (fs, 3500.0, 0.7, range * (presence01 - 0.3)));
+            resonance.setCoeffs (BiquadCoeffs::lowShelf (fs, 95.0, 0.9, range * (resonance01 - 0.25)));
+        }
     }
 
     float process (float x, float drive) noexcept
     {
         float v = voice.process (resonance.process (presence.process (x)));
+        v *= drive * (1.0f - 0.35f * nfb) / headroomScale;
+
+        if (solidState)
+        {
+            // Transistor power amp: clean until it hits the rails, then clips hard and symmetrically.
+            const float a = std::fabs (v);
+            const float y = v / std::pow (1.0f + a * a * a * a, 0.25f);
+            return dc.process (y * headroomScale);
+        }
 
         // Supply sag: heavy output current pulls the supply down, reducing headroom.
-        const float headroom = 1.0f - profile.sagDepth * sagEnv;
-        v *= drive;
-        const float h = profile.hardness / headroom;
+        const float headroom = 1.0f - std::fmin (0.6f, profile.sagDepth * sagMul) * sagEnv;
+        const float h = profile.hardness * (1.0f + 0.5f * nfb) / headroom;
         const float y = asymmetricClip (v, h, h * profile.asymmetry) * headroom;
 
         const float level = std::fabs (y);
         const float coeff = level > sagEnv ? sagAttack : sagRelease;
         sagEnv = flushDenormal (coeff * sagEnv + (1.0f - coeff) * level);
-        return dc.process (y);
+        return dc.process (y * headroomScale);
     }
 
-    float getSagAmount() const noexcept { return sagEnv * profile.sagDepth; }
+    float getSagAmount() const noexcept { return solidState ? 0.0f : sagEnv * profile.sagDepth * sagMul; }
 
 private:
     double fs = 48000.0;
@@ -139,6 +135,8 @@ private:
     Biquad presence, resonance, voice;
     DcBlocker dc;
     float sagEnv = 0.0f, sagAttack = 0.99f, sagRelease = 0.999f;
+    float nfb = 0.5f, sagMul = 1.0f, headroomScale = 1.0f, lastPresence = 0.5f, lastResonance = 0.5f;
+    bool solidState = false;
 };
 
 } // namespace vf::dsp

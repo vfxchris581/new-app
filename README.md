@@ -5,24 +5,45 @@
 **Guitar amp and effects modeling — standalone app and VST3/AU plugin for Windows, macOS and Linux.**
 By Viridian Audio Works.
 
-![Viridian Forge Phase 1 interface](docs/images/ui-phase1.png)
+![Viridian Forge interface](docs/images/ui-phase2.png)
 
-> **Status: Phase 1 of 7.** The app, plugin, interface, branding and a working
-> reference amp voice are built. The 100+ amp catalog, NAM, IR loading, the
-> effects library and presets are planned for later phases and are not
-> implemented yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan.
+> **Status: Phase 2 of 7.** The app, plugin, interface, branding, the circuit-based amp
+> engine with its first 10 amp models, and the cabinet simulator are built. NAM, IR loading,
+> the rest of the 100+ amp catalog, the effects library and presets are planned for later
+> phases and are not implemented yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## What works today
 
 - Standalone app (with audio device settings) and VST3 plugin; AU on macOS.
-- Reference amp voice with real DSP behind every control: 3 channels, gain, circuit-derived
-  passive tone stack (4 voicings), presence, resonance, master with power-tube breakup and
-  supply sag, 7 power-tube types, bright/deep/boost, noise gate, built-in 4x12 cab response,
-  4x oversampling.
+- **Circuit-based amp engine:** 12AX7 preamp stages solved on their load lines from a published
+  tube model, grid conduction with coupling-cap bias shift (touch-sensitive compression and
+  recovery), tone stacks computed from component values, push-pull power stage with 7 tube types,
+  negative feedback, rectifier sag, and a solid-state mode. 4x oversampled.
+- **10 amp models / 14 channels**, level-matched and switchable without clicks:
+
+  | Model | Category | Channels | Inspired by |
+  |---|---|---|---|
+  | Canyon 6V6 Clean | American Clean | 1 | '65 blackface Deluxe Reverb |
+  | Canyon 100 Clean | American Clean | 1 | '65 blackface Twin Reverb |
+  | Tweed Forge 59 | Vintage | 1 | '59 tweed Bassman |
+  | Glass Clean 120 | Vintage | 1 | 1970s solid-state stereo jazz combos |
+  | Mayfair 30 TB | British Clean | 2 | Vox AC30 Top Boost |
+  | Plate 59 Lead | Marshall Collection | 2 | Marshall 1959 Super Lead |
+  | Forge 82 Lead | Classic Rock | 1 | Marshall JCM800 2203 |
+  | Velvet OD | Boutique | 2 | Dumble Overdrive Special |
+  | Ridgeline Classic | Boutique | 2 | Two-Rock Classic Reverb |
+  | Junkyard 30 | Boutique | 1 | Dr. Z Z-Wreck |
+
+  Product names are trademarks of their owners and are used only to describe the tones that
+  guided these original models; no affiliation or endorsement is implied.
+- Power-tube swap on any model (EL34, 6L6, EL84, 6550, KT88, 6V6, 5881), gain, bass, middle,
+  treble, presence, resonance, master, bright, deep, boost, noise gate.
+- **Cabinet simulator:** 7 cabinets (1x12 open, 2x12 alnico, 4x10 tweed, 4x12 Greenback-style,
+  4x12 V30-style, 4x12 modern, 1x12 closed) with mic position and distance.
 - Chromatic tuner, input/output meters with clip LEDs, CPU and latency readouts.
 - Resizable UI with dark and light themes, splash and About screens.
 - Full session save/restore and automation of every parameter.
-- 454 automated DSP checks, run on all three OSes by CI.
+- 736 automated DSP checks (every model and cabinet included), run on all three OSes by CI.
 
 ## Build
 

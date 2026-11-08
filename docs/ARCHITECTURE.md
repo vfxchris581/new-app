@@ -74,41 +74,42 @@ Key decisions:
 
 ## 3. Amplifier modeling engine
 
-**Done (Phase 1 reference voice, `core/include/vf/dsp/AmpVoice.h`):**
+**Done (Phase 2).** Every amp is a data description of its circuit
+(`core/include/vf/models/AmpModels.h`) evaluated by one engine
+(`core/include/vf/dsp/AmpVoice.h`):
 
-1. **Preamp:** 1–3 triode stages depending on channel. Each stage has a
-   cathode-bypass emphasis filter, a biased asymmetric soft clipper (even
-   harmonics, pick-dynamics), a DC blocker and a Miller-capacitance roll-off,
-   so distortion is frequency-dependent.
-2. **Tone stack:** the passive FMV network computed from component values
-   (Yeh & Smith, DAFx 2006) and discretised with the bilinear transform, so
-   bass/mid/treble interact like the real circuit. Four voicings: Tweed,
-   Blackface, British, Modern.
-3. **Power amp:** push-pull stage with seven tube profiles (EL34, 6L6, EL84,
-   6550, KT88, 6V6, 5881), supply **sag** driven by output current, and
-   presence/resonance modeled as the regions where negative feedback is reduced.
-4. **Bright cap** whose effect fades as gain rises (as on the real circuit),
-   **Deep** low shelf, mid-forward **Boost**, gate, built-in 4x12 response.
-5. Runs at **4x oversampling** (JUCE polyphase IIR) to control aliasing.
+1. **Triode stages** (`Triode.h`). Plate current comes from Norman Koren's
+   published 12AX7 model. Each common-cathode stage (B+, plate resistor,
+   cathode resistor, bypassed or not) is solved on its load line *offline*
+   into a 2048-point table; the audio thread does one interpolated lookup per
+   sample. Four operating points: Standard (idles ~203 V, gain ~61), Hot,
+   Cold (unbypassed, gain ~8, the hi-gain "cold clipper"), and Soft.
+2. **Grid conduction and blocking.** When the grid is driven positive it is
+   clamped and charges the coupling capacitor; that bias shift bleeds off
+   with the network's time constant. This is what makes the engine
+   touch-sensitive: hard picking compresses and recovers, rolling back the
+   guitar volume cleans up (measured: THD 0.57 → 0.15).
+3. **Per-stage filtering:** coupling-cap high-pass, partially bypassed
+   cathode shelf, Miller-capacitance roll-off, interstage dividers.
+4. **Circuit placement:** each channel declares where its gain pot, bright
+   cap and tone stack sit (e.g. blackface: stack before the volume pot;
+   Marshall: stack after the last stage; Dumble-style OD: drive pot after
+   the second stage).
+5. **Tone stacks** from component values (Yeh & Smith, DAFx 2006) — seven
+   voicings so far; all verified passive.
+6. **Power section** (`TubeStage.h`): push-pull stage with 7 tube profiles,
+   negative feedback amount (presence/resonance where NFB exists; a Cut
+   control where it doesn't), rectifier sag, headroom, and a solid-state mode.
+7. **Real-time behaviour:** no allocation; model/channel/tube changes fade
+   out over 4 ms, reconfigure and fade in (tested click-free); every
+   model/channel is level-matched by a calibration pass computed once at
+   startup (~140 ms, off the audio thread).
+8. **Cost:** a four-stage model uses ~3% of one core at 4x48 kHz.
 
-Measured by the test suite: raising gain from 1 to 9 increases THD ~19x;
-rolling the guitar input back cuts THD by ~3x (volume-knob cleanup); every
-channel, tube type and switch produces an audible difference.
-
-**Phase 2–3 plan (per-model circuits):**
-
-- Replace static curves with stateful triode models (Koren-style plate curves
-  solved per sample, with grid-conduction) and a coupling-cap bias-shift model
-  for realistic blocking distortion and recovery.
-- Add a **model registry**: each of the 100+ amps is a data description
-  (stage count and topology, coupling/cathode component values, tone-stack
-  type and values incl. Mesa-style post-gain stacks and 5-band graphic EQ,
-  power section, NFB amount, rectifier/sag) evaluated by the same engine.
-  "Genuinely distinct" is enforced by an automated test that renders every
-  model with a reference DI and fails if any two are spectrally too close.
-- Mesa Mark series gets its own topology (cascading lead stage, post-gain
-  tone stack + 5-band GEQ, Simul-Class/Class A variants); Rectifier family gets
-  diode vs tube rectifier sag modes.
+**Phase 3 plan:** extend the registry to 100+ models including the full Mesa
+Mark series topology (cascading lead stage, post-gain tone stack, 5-band
+graphic EQ, Simul-Class) and the Marshall collection, with the automated
+distinctness test (already running on all current models) as the gate.
 
 ## 4. NAM integration
 
@@ -219,22 +220,30 @@ quality bars (every model distinct, every effect production-grade) dominate.
 | Phase | Scope | Exit criteria | Estimate |
 |---|---|---|---|
 | **1 — Shell** | Architecture, CMake, app/plugin shell, UI, branding, icon, reference amp voice, tuner, tests, CI | Builds on 3 OSes, tests pass, every visible control works | **Done** |
-| 2 — Engine | Stateful triode/power models, model registry, ~12 clean/crunch/OD models, cab filters → minimum-phase IR convolution | Blind A/B notes from you on real guitar; latency < 3 ms extra | 3–5 weeks |
+| **2 — Engine** | Circuit-solved triodes with grid blocking, model registry, 10 clean/crunch/OD models (14 channels), tube swap, parametric cab sim with mic controls | All models distinct + level-matched in tests; click-free switching | **Done** (your A/B listening notes still wanted) |
 | 3 — Catalog | NAM loader, user IR loader (WAV) with dual mic blend, phase, HPF/LPF; amp catalog to 100+ incl. Mesa Mark + Marshall collections; amp browser | 100+ models pass the distinctness test; NAM + IR load without dropouts | 6–10 weeks |
 | 4 — Effects | Effect framework, 100+ effects across 6 categories, graph engine, drag-and-drop pedalboard, parallel/split/merge | Each effect has tests; routing changes are click-free | 8–14 weeks |
 | 5 — Presets & plugin | Preset system (tags, favourites, search, import/export), factory presets per amp family, automation polish, stereo routing | Sessions restore exactly in Reaper, Logic, Ableton, Cubase, LUNA | 3–5 weeks |
 | 6 — Optimisation & QA | SIMD, CPU profiling, latency tests, pluginval, DAW matrix on 3 OSes | pluginval strictness 10 passes; CPU budget met | 3–4 weeks |
 | 7 — Release | Installers (pkg/notarised, Inno Setup/MSI, Linux tarball/deb), docs, manual | Signed installers, manual, release notes | 2–3 weeks |
 
-## 10. Phase 1 status
+## 10. Current status (Phase 2)
 
 See the README for build instructions and `docs/TESTING.md` for the test
-checklist. Verified in this phase:
+checklist. Verified:
 
-- Core tests: 454 checks pass (filters, smoothing, passive tone stack, bounded
-  output for all tubes, THD vs gain, volume-knob cleanup, distinct
-  channels/tubes/switches, gate, tuner on standard and drop tunings, tuner
-  safety before audio starts, parameter table sanity).
-- The JUCE Standalone app and VST3 build with zero warnings in project code on
-  Linux and the UI was launched and inspected. Windows and macOS builds are
-  run by the GitHub Actions workflow on every push.
+- Core tests: 736 checks pass, also clean under AddressSanitizer and
+  UndefinedBehaviorSanitizer: filters, smoothing, every tone stack passive,
+  12AX7 tables match real operating points, grid bias shift and recovery,
+  every model/channel bounded and finite (incl. all tube swaps), gain raises
+  distortion on every tube model, clean models stay clean, volume-knob
+  cleanup, level matching within 4 dB, every model/channel pair spectrally
+  distinct, every control audible, click-free model switching, cabinets
+  distinct with correct mic position/proximity behaviour, gate, tuner,
+  parameter table.
+- The Standalone app and VST3 build with zero warnings in project code on
+  Linux and the UI was launched and inspected. Windows and macOS builds run
+  in GitHub Actions on every push.
+- Parameter changes in Phase 2 (pre-release, so no migration needed):
+  removed `toneStack` and `powerTube`; added `ampModel`, `tubeSwap`,
+  `cabModel`, `micPos`, `micDist`.

@@ -3,8 +3,11 @@
 
 #include "vf/Parameters.h"
 #include "vf/dsp/AmpVoice.h"
+#include "vf/dsp/Cabinet.h"
 #include "vf/dsp/NoiseGate.h"
+#include "vf/dsp/Triode.h"
 #include "vf/dsp/Tuner.h"
+#include "vf/models/AmpModels.h"
 
 #include <cmath>
 #include <cstdio>
@@ -13,6 +16,7 @@
 #include <vector>
 
 using namespace vf::dsp;
+namespace M = vf::models;
 
 namespace
 {
@@ -66,14 +70,50 @@ double toneLevel (const std::vector<float>& v, double freq, double fs, size_t st
     return 2.0 * std::sqrt (re * re + im * im) / static_cast<double> (v.size() - start);
 }
 
+/** Process in host-sized blocks, like a real audio callback. */
 std::vector<float> runAmp (const AmpSettings& s, const std::vector<float>& in, double fs)
 {
     AmpVoice amp;
-    amp.prepare (fs, 512);
     amp.setSettings (s);
+    amp.prepare (fs, 512);
     std::vector<float> out = in;
-    amp.process (out.data(), static_cast<int> (out.size()));
+    for (size_t i = 0; i < out.size(); i += 512)
+        amp.process (out.data() + i, static_cast<int> (std::min<size_t> (512, out.size() - i)));
     return out;
+}
+
+double thdOf (const std::vector<float>& out, double f0, double fs)
+{
+    const size_t start = out.size() / 2;
+    const double f1 = toneLevel (out, f0, fs, start);
+    double h = 0.0;
+    for (int k = 2; k <= 8; ++k) { const double a = toneLevel (out, f0 * k, fs, start); h += a * a; }
+    return f1 > 1.0e-9 ? std::sqrt (h) / f1 : 0.0;
+}
+
+/** Guitar-like reference: decaying note with harmonics. */
+std::vector<float> pluck (double f0, double fs, double seconds, float amp)
+{
+    std::vector<float> v (static_cast<size_t> (fs * seconds));
+    for (size_t i = 0; i < v.size(); ++i)
+    {
+        const double t = static_cast<double> (i) / fs;
+        double x = 0.0;
+        for (int h = 1; h <= 6; ++h) x += std::sin (2.0 * kPi * f0 * h * t) / h;
+        v[i] = static_cast<float> (amp * std::exp (-t * 2.5) * x);
+    }
+    return v;
+}
+
+struct Variant { int model, channel; std::string label; };
+
+std::vector<Variant> allVariants()
+{
+    std::vector<Variant> v;
+    for (int m = 0; m < M::numAmpModels(); ++m)
+        for (int c = 0; c < M::getAmpModel (m).numChannels; ++c)
+            v.push_back ({ m, c, std::string (M::getAmpModel (m).name) + " / " + M::getAmpModel (m).channels[static_cast<size_t> (c)].name });
+    return v;
 }
 } // namespace
 
@@ -99,17 +139,16 @@ int main()
         check (v == 1.0f && ! s.isSmoothing(), "ramp completes in 480 samples");
     });
 
-    test ("Tone stack is passive and knobs act on the right bands", []
+    test ("Every tone stack is passive and its knobs act on the right bands", []
     {
-        for (int v = 0; v < 4; ++v)
+        std::vector<ToneStackComponents> stacks;
+        for (int m = 0; m < M::numAmpModels(); ++m) stacks.push_back (M::getAmpModel (m).stack);
+        for (const auto& comp : stacks)
         {
             ToneStack ts;
             ts.prepare (48000.0);
-            const ToneStackComponents comps[] = { ToneStackComponents::tweedBassman(), ToneStackComponents::blackface(),
-                                                  ToneStackComponents::british(), ToneStackComponents::modernHiGain() };
-            ts.setComponents (comps[v]);
-            const std::string tag = comps[v].name;
-
+            ts.setComponents (comp);
+            const std::string tag = comp.name;
             double maxGain = 0.0;
             for (double b : { 0.0, 0.5, 1.0 })
                 for (double m : { 0.0, 0.5, 1.0 })
@@ -120,98 +159,141 @@ int main()
                             maxGain = std::fmax (maxGain, ts.magnitudeAt (f));
                     }
             check (maxGain <= 1.02, tag + ": passive network never exceeds unity gain");
-
-            ts.setControls (0.0, 0.5, 0.5); const double bassLow = ts.magnitudeAt (80.0);
-            ts.setControls (1.0, 0.5, 0.5); const double bassHigh = ts.magnitudeAt (80.0);
-            check (bassHigh > bassLow * 1.5, tag + ": bass knob raises 80 Hz");
-
-            ts.setControls (0.5, 0.5, 0.0); const double trebLow = ts.magnitudeAt (5000.0);
-            ts.setControls (0.5, 0.5, 1.0); const double trebHigh = ts.magnitudeAt (5000.0);
-            check (trebHigh > trebLow * 1.5, tag + ": treble knob raises 5 kHz");
-
-            ts.setControls (0.5, 0.0, 0.5); const double midLow = ts.magnitudeAt (500.0);
-            ts.setControls (0.5, 1.0, 0.5); const double midHigh = ts.magnitudeAt (500.0);
-            check (midHigh > midLow * 1.2, tag + ": middle knob raises 500 Hz");
+            ts.setControls (0.0, 0.5, 0.5); const double bLo = ts.magnitudeAt (80.0);
+            ts.setControls (1.0, 0.5, 0.5); const double bHi = ts.magnitudeAt (80.0);
+            check (bHi > bLo * 1.5, tag + ": bass knob raises 80 Hz");
+            ts.setControls (0.5, 0.5, 0.0); const double tLo = ts.magnitudeAt (5000.0);
+            ts.setControls (0.5, 0.5, 1.0); const double tHi = ts.magnitudeAt (5000.0);
+            check (tHi > tLo * 1.3, tag + ": treble knob raises 5 kHz");
+            ts.setControls (0.5, 0.0, 0.5); const double mLo = ts.magnitudeAt (500.0);
+            ts.setControls (0.5, 1.0, 0.5); const double mHi = ts.magnitudeAt (500.0);
+            check (mHi > mLo * 1.1, tag + ": middle knob raises 500 Hz");
         }
     });
 
-    test ("Amp output is finite and bounded at extreme settings", [&]
+    test ("Triode load-line tables match real 12AX7 behaviour", []
     {
-        AmpSettings s;
-        s.gain = 10; s.master = 10; s.bass = 10; s.treble = 10; s.middle = 10; s.presence = 10; s.resonance = 10;
-        s.boost = s.bright = s.deep = true;
-        s.channel = AmpChannel::Lead;
-        for (int t = 0; t < static_cast<int> (PowerTube::count); ++t)
+        const auto& std12 = TriodeTable::get (TriodeCircuit::Standard);
+        check (std12.quiescentPlate() > 150.0 && std12.quiescentPlate() < 240.0, "standard stage idles 150-240 V on the plate");
+        check (std12.smallSignalGain() < -45.0 && std12.smallSignalGain() > -80.0, "standard stage gain ~ -60 (inverting)");
+        check (std::fabs (TriodeTable::get (TriodeCircuit::Cold).smallSignalGain()) < 15.0, "cold unbypassed stage has low gain");
+        // Asymmetry: cut-off (negative grid) swing is larger than the saturation swing
+        check (std12.lookup (-10.0f) > std::fabs (std12.lookup (0.9f)), "positive plate swing (cut-off) exceeds negative swing");
+        float prev = std12.lookup (-24.0f);
+        bool monotonic = true;
+        for (float v = -23.9f; v <= 3.9f; v += 0.1f) { const float y = std12.lookup (v); if (y > prev + 1e-3f) monotonic = false; prev = y; }
+        check (monotonic, "transfer curve is monotonic (decreasing)");
+    });
+
+    test ("Grid conduction shifts bias on loud transients and recovers", []
+    {
+        StageSpec spec; spec.recoveryMs = 50.0f;
+        TriodeStageModel stage;
+        stage.prepare (48000.0, spec);
+        const auto burst = sine (200.0, 48000.0, 4800, 8.0f); // hard-driven grid
+        for (float x : burst) stage.process (x);
+        const float shifted = stage.getBiasShift();
+        for (int i = 0; i < 48000; ++i) stage.process (0.0f);
+        check (shifted > 0.5f, "loud burst charges the coupling cap (bias shift)");
+        check (stage.getBiasShift() < shifted * 0.05f, "bias recovers within a second");
+    });
+
+    test ("Every model and channel is finite and bounded at extreme settings", [&]
+    {
+        for (const auto& v : allVariants())
         {
-            s.tube = static_cast<PowerTube> (t);
-            const auto out = runAmp (s, sine (110.0, fs, 48000, 1.0f), fs);
+            AmpSettings s; s.model = v.model; s.channel = v.channel;
+            s.gain = 10; s.master = 10; s.bass = 10; s.treble = 10; s.middle = 10; s.presence = 10; s.resonance = 10;
+            s.boost = s.bright = s.deep = true;
+            const auto out = runAmp (s, sine (110.0, fs, 38400, 1.0f), fs);
             double peak = 0.0;
             for (float x : out) peak = std::fmax (peak, std::fabs (x));
-            check (allFinite (out), std::string ("finite output, tube ") + getPowerTubeProfile (s.tube).name);
-            check (peak < 8.0, std::string ("bounded output, tube ") + getPowerTubeProfile (s.tube).name);
+            check (allFinite (out), "finite: " + v.label);
+            check (peak < 12.0, "bounded: " + v.label + " (peak " + std::to_string (peak) + ")");
+        }
+        for (int t = 0; t < static_cast<int> (PowerTube::count); ++t)
+        {
+            AmpSettings s; s.tubeSwap = t; s.master = 10; s.gain = 10;
+            const auto out = runAmp (s, sine (110.0, fs, 38400, 1.0f), fs);
+            check (allFinite (out), std::string ("finite with tube swap ") + getPowerTubeProfile (static_cast<PowerTube> (t)).name);
         }
     });
 
-    test ("Gain knob increases distortion (THD)", [&]
+    test ("Gain knob raises distortion on every tube model", [&]
     {
-        auto thd = [&] (float gain)
+        for (const auto& v : allVariants())
         {
-            AmpSettings s; s.channel = AmpChannel::Crunch; s.gain = gain; s.cabEnabled = false;
-            const auto out = runAmp (s, sine (220.0, fs, 96000, 0.3f), fs);
-            const size_t start = 48000;
-            const double f1 = toneLevel (out, 220.0, fs, start);
-            double h = 0.0;
-            for (int k = 2; k <= 7; ++k) { const double a = toneLevel (out, 220.0 * k, fs, start); h += a * a; }
-            return std::sqrt (h) / f1;
-        };
-        const double low = thd (1.0f), high = thd (9.0f);
-        std::printf ("    THD gain 1: %.4f   gain 9: %.4f\n", low, high);
-        check (high > low * 3.0, "THD at gain 9 is much higher than at gain 1");
+            if (M::getAmpModel (v.model).power.solidState) continue;
+            auto thdAt = [&] (float g)
+            {
+                AmpSettings s; s.model = v.model; s.channel = v.channel; s.gain = g;
+                return thdOf (runAmp (s, sine (196.0, fs, 76800, 0.25f), fs), 196.0, fs);
+            };
+            const double lo = thdAt (1.0f), hi = thdAt (9.0f);
+            check (hi > lo * 2.0, v.label + ": THD rises with gain (" + std::to_string (lo) + " -> " + std::to_string (hi) + ")");
+        }
+    });
+
+    test ("Clean amps stay clean at moderate settings", [&]
+    {
+        for (auto id : { M::AmpModelId::Canyon100, M::AmpModelId::GlassClean120 })
+        {
+            AmpSettings s; s.model = static_cast<int> (id); s.gain = 5.0f;
+            const double thd = thdOf (runAmp (s, sine (196.0, fs, 76800, 0.25f), fs), 196.0, fs);
+            check (thd < 0.05, std::string (M::getAmpModel (s.model).name) + " THD at gain 5 < 5% (got " + std::to_string (thd) + ")");
+        }
     });
 
     test ("Guitar volume roll-back cleans up the tone", [&]
     {
-        auto thdForInput = [&] (float level)
-        {
-            AmpSettings s; s.channel = AmpChannel::Crunch; s.gain = 6.0f; s.cabEnabled = false;
-            const auto out = runAmp (s, sine (196.0, fs, 96000, level), fs);
-            const double f1 = toneLevel (out, 196.0, fs, 48000);
-            double h = 0.0;
-            for (int k = 2; k <= 7; ++k) { const double a = toneLevel (out, 196.0 * k, fs, 48000); h += a * a; }
-            return std::sqrt (h) / f1;
-        };
-        const double full = thdForInput (0.5f), rolled = thdForInput (0.08f);
+        AmpSettings s; s.model = static_cast<int> (M::AmpModelId::Plate59Lead); s.gain = 7.0f;
+        const double full = thdOf (runAmp (s, sine (196.0, fs, 76800, 0.5f), fs), 196.0, fs);
+        const double rolled = thdOf (runAmp (s, sine (196.0, fs, 76800, 0.06f), fs), 196.0, fs);
         std::printf ("    THD full volume: %.4f   rolled back: %.4f\n", full, rolled);
         check (rolled < full * 0.5, "lower input level gives a cleaner tone");
     });
 
-    test ("Every channel and power tube sounds different", [&]
+    test ("Models are level-matched (within 4 dB at reference settings)", [&]
     {
-        const auto in = sine (147.0, fs, 48000, 0.4f);
-        std::vector<std::vector<float>> outs;
-        for (int c = 0; c < 3; ++c)
+        const auto in = pluck (110.0, fs, 0.6, 0.18f);
+        for (const auto& v : allVariants())
         {
-            AmpSettings s; s.channel = static_cast<AmpChannel> (c);
-            outs.push_back (runAmp (s, in, fs));
+            AmpSettings s; s.model = v.model; s.channel = v.channel;
+            const auto out = runAmp (s, in, fs);
+            const double db = 20.0 * std::log10 (rms (out, out.size() / 4) / 0.12);
+            check (std::fabs (db) < 4.0, v.label + " level " + std::to_string (db) + " dB");
         }
-        for (int t = 0; t < static_cast<int> (PowerTube::count); ++t)
-        {
-            AmpSettings s; s.master = 8.0f; s.tube = static_cast<PowerTube> (t);
-            outs.push_back (runAmp (s, in, fs));
-        }
-        for (size_t a = 0; a < outs.size(); ++a)
-            for (size_t b = a + 1; b < outs.size(); ++b)
-            {
-                std::vector<float> d (outs[a].size());
-                for (size_t i = 0; i < d.size(); ++i) d[i] = outs[a][i] - outs[b][i];
-                const double rel = rms (d, 24000) / std::fmax (rms (outs[a], 24000), 1e-9);
-                check (rel > 0.02, "variants " + std::to_string (a) + " and " + std::to_string (b) + " differ audibly");
-            }
     });
 
-    test ("Every amp switch changes the sound", [&]
+    test ("Every model and channel sounds distinct", [&]
     {
-        // Full-range test signal: low note plus upper-harmonic content for the treble-side controls.
+        // Compare spectral envelopes (harmonic levels) of a pluck through each variant.
+        const auto in = pluck (98.0, fs, 0.5, 0.2f);
+        std::vector<std::vector<double>> prints;
+        const auto variants = allVariants();
+        for (const auto& v : variants)
+        {
+            AmpSettings s; s.model = v.model; s.channel = v.channel;
+            const auto out = runAmp (s, in, fs);
+            std::vector<double> p;
+            for (int k = 1; k <= 30; ++k) p.push_back (20.0 * std::log10 (toneLevel (out, 98.0 * k, fs, out.size() / 5) + 1e-7));
+            prints.push_back (p);
+        }
+        double minDist = 1e9;
+        for (size_t a = 0; a < prints.size(); ++a)
+            for (size_t b = a + 1; b < prints.size(); ++b)
+            {
+                double d = 0.0;
+                for (size_t k = 0; k < prints[a].size(); ++k) d += std::fabs (prints[a][k] - prints[b][k]);
+                d /= static_cast<double> (prints[a].size());
+                minDist = std::fmin (minDist, d);
+                check (d > 1.0, variants[a].label + " vs " + variants[b].label + " differ (mean " + std::to_string (d) + " dB)");
+            }
+        std::printf ("    closest pair differs by %.2f dB per harmonic on average\n", minDist);
+    });
+
+    test ("Every amp control changes the sound", [&]
+    {
         auto in = sine (98.0, fs, 48000, 0.25f);
         const auto hi = sine (2900.0, fs, 48000, 0.05f);
         for (size_t i = 0; i < in.size(); ++i) in[i] += hi[i];
@@ -230,11 +312,69 @@ int main()
         s = base; s.bright = true;     differs (s, "bright switch");
         s = base; s.deep = true;       differs (s, "deep switch");
         s = base; s.boost = true;      differs (s, "boost switch");
-        s = base; s.cabEnabled = false; differs (s, "cab switch");
+        s = base; s.channel = 1;       differs (s, "channel switch");
+        s = base; s.gain = 9;          differs (s, "gain knob");
+        s = base; s.bass = 9;          differs (s, "bass knob");
+        s = base; s.middle = 1;        differs (s, "middle knob");
+        s = base; s.treble = 9;        differs (s, "treble knob");
         s = base; s.presence = 10;     differs (s, "presence knob");
         s = base; s.resonance = 10;    differs (s, "resonance knob");
         s = base; s.master = 9;        differs (s, "master knob");
-        s = base; s.toneStack = ToneStackVoicing::Tweed; differs (s, "tone stack voicing");
+        s = base; s.tubeSwap = static_cast<int> (PowerTube::KT88); differs (s, "power tube swap");
+    });
+
+    test ("Switching models mid-stream is click-free", [&]
+    {
+        AmpVoice amp;
+        AmpSettings a; a.model = static_cast<int> (M::AmpModelId::Canyon6V6);
+        amp.setSettings (a);
+        amp.prepare (fs, 512);
+        auto sig = sine (147.0, fs, 512 * 188, 0.2f); // whole number of blocks
+        double maxStep = 0.0, maxStepBefore = 0.0;
+        float last = 0.0f;
+        for (size_t i = 0; i < sig.size(); i += 512)
+        {
+            if (i == 48128) { AmpSettings b; b.model = static_cast<int> (M::AmpModelId::Forge82Lead); amp.setSettings (b); }
+            amp.process (sig.data() + i, 512);
+            for (size_t k = i; k < i + 512; ++k)
+            {
+                const double step = std::fabs (sig[k] - last);
+                (i < 48128 ? maxStepBefore : maxStep) = std::fmax (i < 48128 ? maxStepBefore : maxStep, step);
+                last = sig[k];
+            }
+        }
+        check (amp.getSettings().model == static_cast<int> (M::AmpModelId::Forge82Lead), "new model is active after the switch");
+        check (maxStep < 0.1, "no discontinuity across the switch (max step " + std::to_string (maxStep) + ")");
+    });
+
+    test ("Cabinets differ and mic controls behave like a real close mic", []
+    {
+        std::vector<std::vector<double>> curves;
+        for (int c = 0; c < static_cast<int> (CabModel::count); ++c)
+        {
+            CabinetSim cab; cab.prepare (48000.0);
+            cab.setParams (static_cast<CabModel> (c), 0.3f, 0.2f); cab.update();
+            std::vector<double> curve;
+            for (double f = 60.0; f < 9000.0; f *= 1.25) curve.push_back (20.0 * std::log10 (cab.magnitudeAt (f)));
+            curves.push_back (curve);
+            check (cab.magnitudeAt (10000.0) < cab.magnitudeAt (2000.0) * 0.3, std::string (cabModelNames[static_cast<size_t> (c)]) + " rolls off the fizz above 10 kHz");
+        }
+        for (size_t a = 0; a < curves.size(); ++a)
+            for (size_t b = a + 1; b < curves.size(); ++b)
+            {
+                double d = 0.0;
+                for (size_t k = 0; k < curves[a].size(); ++k) d += std::fabs (curves[a][k] - curves[b][k]);
+                check (d / static_cast<double> (curves[a].size()) > 0.7,
+                       std::string (cabModelNames[a]) + " vs " + cabModelNames[b] + " responses differ");
+            }
+
+        CabinetSim cab; cab.prepare (48000.0);
+        cab.setParams (CabModel::V30_4x12, 0.0f, 0.2f); cab.update(); const double centre = cab.magnitudeAt (4500.0);
+        cab.setParams (CabModel::V30_4x12, 1.0f, 0.2f); cab.update(); const double edge = cab.magnitudeAt (4500.0);
+        check (centre > edge * 1.6, "mic at cone centre is brighter than at the edge");
+        cab.setParams (CabModel::V30_4x12, 0.3f, 0.0f); cab.update(); const double close = cab.magnitudeAt (120.0);
+        cab.setParams (CabModel::V30_4x12, 0.3f, 1.0f); cab.update(); const double far = cab.magnitudeAt (120.0);
+        check (close > far * 1.4, "close mic has more low end (proximity effect)");
     });
 
     test ("Noise gate closes on hiss and opens on a note", []

@@ -33,10 +33,14 @@ public:
 private:
     juce::Rectangle<float> faceplateArea() const;
 
+    void modelChanged (int index);
+
     ChannelSelector channel;
     LabeledKnob gain, bass, middle, treble, presence, resonance, master;
     LedSwitch bright, deep, boost;
-    ChoiceBox powerTube, toneStack;
+    AmpModelSelector model;
+    ChoiceBox tubeSwap;
+    juce::String badgeName, badgeCategory;
 };
 
 /** Input/gate/output strip to the left/right of the amp. */
@@ -61,7 +65,13 @@ public:
     void resized() override;
 
 private:
+    juce::Rectangle<float> cabArea() const;
+
     LedSwitch cabOn;
+    ChoiceBox cabModel;
+    LabeledKnob micPosition, micDistance;
+    std::unique_ptr<juce::ParameterAttachment> modelWatch;
+    int currentCab = 0;
 };
 
 /** Signal chain overview. Blocks that exist are live (click toggles bypass);

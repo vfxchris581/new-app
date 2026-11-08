@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "vf/Parameters.h"
 #include "vf/dsp/AmpVoice.h"
+#include "vf/dsp/Cabinet.h"
 #include "vf/dsp/NoiseGate.h"
 #include "vf/dsp/Tuner.h"
 
@@ -68,17 +69,19 @@ private:
     struct RawParams
     {
         std::atomic<float>* inputGain = nullptr; std::atomic<float>* gateOn = nullptr; std::atomic<float>* gateThresh = nullptr;
-        std::atomic<float>* channel = nullptr;   std::atomic<float>* boost = nullptr;  std::atomic<float>* gain = nullptr;
-        std::atomic<float>* bass = nullptr;      std::atomic<float>* middle = nullptr; std::atomic<float>* treble = nullptr;
-        std::atomic<float>* presence = nullptr;  std::atomic<float>* resonance = nullptr; std::atomic<float>* master = nullptr;
-        std::atomic<float>* bright = nullptr;    std::atomic<float>* deep = nullptr;   std::atomic<float>* powerTube = nullptr;
-        std::atomic<float>* toneStack = nullptr; std::atomic<float>* cabOn = nullptr;  std::atomic<float>* outLevel = nullptr;
+        std::atomic<float>* ampModel = nullptr;  std::atomic<float>* channel = nullptr; std::atomic<float>* boost = nullptr;
+        std::atomic<float>* gain = nullptr;      std::atomic<float>* bass = nullptr;    std::atomic<float>* middle = nullptr;
+        std::atomic<float>* treble = nullptr;    std::atomic<float>* presence = nullptr; std::atomic<float>* resonance = nullptr;
+        std::atomic<float>* master = nullptr;    std::atomic<float>* bright = nullptr;  std::atomic<float>* deep = nullptr;
+        std::atomic<float>* tubeSwap = nullptr;  std::atomic<float>* cabOn = nullptr;   std::atomic<float>* cabModel = nullptr;
+        std::atomic<float>* micPos = nullptr;    std::atomic<float>* micDist = nullptr; std::atomic<float>* outLevel = nullptr;
     } raw;
 
     static constexpr int oversamplingFactorLog2 = 2; // 4x for the nonlinear amp path
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     vf::dsp::AmpVoice amp;
     vf::dsp::NoiseGate gate;
+    vf::dsp::CabinetSim cabinet;
     vf::dsp::TunerAnalyser tuner;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inputGain { 1.0f }, outputGain { 1.0f };
 
@@ -88,6 +91,7 @@ private:
     juce::AudioProcessLoadMeasurer loadMeasurer;
     std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f };
     std::atomic<bool> gateOpen { true };
+    juce::SmoothedValue<float> cabMix { 1.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ViridianForgeProcessor)
 };

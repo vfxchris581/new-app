@@ -51,12 +51,32 @@ class ChannelSelector : public juce::Component
 {
 public:
     ChannelSelector (APVTS& state, const juce::String& paramId);
+    /** Relabel for the current amp model; channels beyond names.size() are disabled. */
+    void setChannelNames (const juce::StringArray& names);
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
     void select (int index);
     juce::OwnedArray<juce::TextButton> buttons;
+    std::unique_ptr<juce::ParameterAttachment> attachment;
+    int current = 0, available = 3;
+};
+
+/** Amp model picker grouped by category. Uses its own attachment keyed by
+    model ID (JUCE's ComboBoxAttachment maps by list position, which breaks
+    once items are grouped under headings). */
+class AmpModelSelector : public juce::Component
+{
+public:
+    AmpModelSelector (APVTS& state, const juce::String& paramId);
+    void resized() override;
+    std::function<void (int)> onModelChanged;
+    int getModel() const noexcept { return current; }
+
+private:
+    juce::ComboBox box;
+    juce::Label caption;
     std::unique_ptr<juce::ParameterAttachment> attachment;
     int current = 0;
 };
