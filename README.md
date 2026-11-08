@@ -5,50 +5,54 @@
 **Guitar amp and effects modeling — standalone app and VST3/AU plugin for Windows, macOS and Linux.**
 By Viridian Audio Works.
 
-![Viridian Forge interface](docs/images/ui-phase2.png)
+![Viridian Forge: Mark IIC+-style model with its graphic EQ](docs/images/ui-mark-geq.png)
 
-> **Status: Phase 2 of 7.** The app, plugin, interface, branding, the circuit-based amp
-> engine with its first 10 amp models, and the cabinet simulator are built. NAM, IR loading,
-> the rest of the 100+ amp catalog, the effects library and presets are planned for later
-> phases and are not implemented yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: Phase 3 of 7.** The app, plugin, interface, circuit-based amp engine with
+> **104 amp models**, Neural Amp Modeler support, impulse-response loading and the cabinet
+> section are built. The effects library and drag-and-drop pedalboard (Phase 4) and the preset
+> system (Phase 5) are not implemented yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## What works today
 
 - Standalone app (with audio device settings) and VST3 plugin; AU on macOS.
 - **Circuit-based amp engine:** 12AX7 preamp stages solved on their load lines from a published
   tube model, grid conduction with coupling-cap bias shift (touch-sensitive compression and
-  recovery), tone stacks computed from component values, push-pull power stage with 7 tube types,
-  negative feedback, rectifier sag, and a solid-state mode. 4x oversampled.
-- **10 amp models / 14 channels**, level-matched and switchable without clicks:
+  recovery), tone stacks computed from component values (including separate clean-channel EQs),
+  push-pull power stage with 7 tube types, negative feedback, rectifier sag, a solid-state mode,
+  and a Mesa-style post-gain 5-band graphic EQ. 4x oversampled.
+- **104 amp models / 187 channels** across all 12 categories, level-matched and switchable
+  without clicks — including the full **Mesa Mark collection** (Mark I, IIA, IIB, IIC, IIC+, III,
+  IV, V, VII) with graphic EQ, the **Rectifier family** (Dual, Triple, Single, Road King,
+  Roadster), the **Marshall collection** (JTM45 through JVM, 1970s variants, modded Marshalls)
+  and a neo-classical shred lead model. Full list: [docs/AMP_CATALOG.md](docs/AMP_CATALOG.md).
+  Product names are trademarks of their owners and only describe the tones that guided these
+  original models; no affiliation or endorsement is implied.
+- **Neural Amp Modeler:** load any mono `.nam` capture (WaveNet, LSTM, ConvNet, A2 and more via the
+  official NeuralAmpModelerCore v0.6.0). Background loading, click-free swapping, automatic
+  resampling when your session runs at a different rate than the capture, loudness normalisation,
+  and a capture library (import/browse). The amp knobs keep working: Gain drives the capture,
+  the EQ knobs shape it, Master sets its level.
 
-  | Model | Category | Channels | Inspired by |
-  |---|---|---|---|
-  | Canyon 6V6 Clean | American Clean | 1 | '65 blackface Deluxe Reverb |
-  | Canyon 100 Clean | American Clean | 1 | '65 blackface Twin Reverb |
-  | Tweed Forge 59 | Vintage | 1 | '59 tweed Bassman |
-  | Glass Clean 120 | Vintage | 1 | 1970s solid-state stereo jazz combos |
-  | Mayfair 30 TB | British Clean | 2 | Vox AC30 Top Boost |
-  | Plate 59 Lead | Marshall Collection | 2 | Marshall 1959 Super Lead |
-  | Forge 82 Lead | Classic Rock | 1 | Marshall JCM800 2203 |
-  | Velvet OD | Boutique | 2 | Dumble Overdrive Special |
-  | Ridgeline Classic | Boutique | 2 | Two-Rock Classic Reverb |
-  | Junkyard 30 | Boutique | 1 | Dr. Z Z-Wreck |
+  ![NAM mode](docs/images/ui-nam.png)
+- **Cabinet section:** 7 built-in cabinets with 3 mic types (dynamic, ribbon, condenser), mic
+  position and distance; or load **WAV/AIFF impulse responses** into slots A and B with blend,
+  phase invert and true stereo (A left / B right); plus low cut, high cut and a stereo room.
 
-  Product names are trademarks of their owners and are used only to describe the tones that
-  guided these original models; no affiliation or endorsement is implied.
-- Power-tube swap on any model (EL34, 6L6, EL84, 6550, KT88, 6V6, 5881), gain, bass, middle,
-  treble, presence, resonance, master, bright, deep, boost, noise gate.
-- **Cabinet simulator:** 7 cabinets (1x12 open, 2x12 alnico, 4x10 tweed, 4x12 Greenback-style,
-  4x12 V30-style, 4x12 modern, 1x12 closed) with mic position and distance.
+  ![IR mode](docs/images/ui-ir.png)
+- Power-tube swap on any model, gain, bass, middle, treble, presence, resonance, master, bright,
+  deep, boost, noise gate.
 - Chromatic tuner, input/output meters with clip LEDs, CPU and latency readouts.
 - Resizable UI with dark and light themes, splash and About screens.
-- Full session save/restore and automation of every parameter.
-- 736 automated DSP checks (every model and cabinet included), run on all three OSes by CI.
+- Full session save/restore (including loaded NAM and IR files) and automation of every parameter.
+- Automated tests: 8,629 DSP checks (every model, cabinet, mic, resampler) and 37 NAM checks,
+  run on all three OSes by CI.
 
 ## Build
 
-Requirements on every OS: **CMake 3.22+**, **Git**, and a C++17 compiler. The first configure
-downloads JUCE 8.0.4 automatically (or point to your own copy with `-DJUCE_DIR=/path/to/JUCE`).
+Requirements on every OS: **CMake 3.22+**, **Git**, and a C++20-capable compiler (Xcode 14+,
+Visual Studio 2022, GCC 11+ or Clang 14+). The first configure downloads JUCE 8.0.4,
+NeuralAmpModelerCore v0.6.0 and Eigen 3.4.0 automatically. To use local copies instead:
+`-DJUCE_DIR=… -DNAM_DIR=… -DEIGEN_DIR=…`; to build without NAM: `-DVF_WITH_NAM=OFF`.
 
 ### macOS (Xcode command-line tools)
 
@@ -108,6 +112,10 @@ Results in `build/app/ViridianForge_artefacts/Release/`:
    64–256 samples.
 3. Click **INPUT MUTED** to switch to **LIVE INPUT** (input starts muted to prevent speaker feedback).
 4. Tune with the tuner in the top bar, then play.
+5. NAM captures: switch **AMP SOURCE** to **NAM** and use **LOAD** (Import copies the file into your
+   capture library). Impulse responses: choose **IR A** or **IR A + B** in the cabinet panel and
+   **LOAD** a WAV. Libraries live in your user application-data folder under `Viridian Forge/NAM`
+   and `Viridian Forge/IRs` (LOAD → *Show library folder* opens it).
 
 Building only the DSP core and tests (no JUCE download): `cmake -S . -B build -DVF_BUILD_PLUGIN=OFF`.
 
@@ -115,12 +123,14 @@ Building only the DSP core and tests (no JUCE download): `cmake -S . -B build -D
 
 | Path | Contents |
 |---|---|
-| `core/` | JUCE-free DSP core (amp voice, tone stack, tubes, gate, tuner, parameters) |
+| `core/` | JUCE-free DSP core (amp engine, 104-model registry, cab/mic/room, resampler, tuner, parameters) |
+| `nam/` | Neural Amp Modeler host (C++20, wraps NeuralAmpModelerCore) |
 | `app/` | JUCE processor, editor and UI components |
-| `tests/` | Core unit tests (CTest) |
+| `tests/` | Core and NAM unit tests (CTest) |
+| `tools/` | Level-calibration generator; UI snapshot / smoke-test tool |
 | `resources/branding/` | Icon (SVG + PNG), wordmark, reference guitar photo |
 | `scripts/make_branding.py` | Regenerates the icon and wordmark |
-| `docs/` | Architecture & roadmap, testing checklist |
+| `docs/` | Architecture & roadmap, amp catalog, testing checklist |
 
 ## Licensing note
 

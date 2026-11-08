@@ -3,8 +3,14 @@
 #include "vf/nam/NamEngine.h"
 #include "vf/dsp/Resampler.h"
 
+#include "NAM/container.h"
+#include "NAM/convnet.h"
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
+#include "NAM/linear.h"
+#include "NAM/lstm.h"
+#include "NAM/sequential.h"
+#include "NAM/wavenet/model.h"
 #include "json.hpp"
 
 #include <algorithm>
@@ -16,6 +22,25 @@
 
 namespace vf::nam
 {
+
+//==============================================================================
+// NAM registers each architecture with a static object in that architecture's
+// source file. When the NAM objects end up inside a static library (as in the
+// plugin's shared-code library), the linker would drop those files because
+// nothing references them, and loading would fail with "No config parser
+// registered". Referencing one function from each file keeps them linked.
+using ConfigFactory = std::unique_ptr<::nam::ModelConfig> (*) (const nlohmann::json&, double);
+static ConfigFactory const volatile keepArchitecturesLinked[] = {
+    &::nam::wavenet::create_config, &::nam::lstm::create_config, &::nam::convnet::create_config,
+    &::nam::linear::create_config,  &::nam::sequential::create_config, &::nam::container::create_config,
+};
+
+int numLinkedArchitectures() noexcept
+{
+    int n = 0;
+    for (auto f : keepArchitecturesLinked) if (f != nullptr) ++n;
+    return n;
+}
 
 //==============================================================================
 std::string ModelInfo::describe() const
@@ -156,6 +181,7 @@ static void deleteLoadedModel (LoadedModel* m) { delete m; }
 
 LoadResult loadModel (const std::string& path, double hostSampleRate, int maxBlockSize)
 {
+    (void) numLinkedArchitectures(); // keeps every architecture's registration linked in
     LoadResult r;
     r.model = std::unique_ptr<LoadedModel, void (*) (LoadedModel*)> (nullptr, deleteLoadedModel);
     try

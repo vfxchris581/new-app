@@ -587,6 +587,31 @@ int main()
         x = s; x.deep = true;    check (at (x, 60.0) > 3.0, "deep lifts lows");
     });
 
+    test ("Mic types have their characteristic response", []
+    {
+        auto at = [] (MicType m, double f)
+        {
+            CabinetSim c; c.prepare (48000.0);
+            c.setParams (CabModel::V30_4x12, 0.3f, 0.1f, m); c.update();
+            return c.magnitudeAt (f);
+        };
+        check (at (MicType::Ribbon121, 5000.0) < at (MicType::Dynamic57, 5000.0) * 0.6, "ribbon is darker than dynamic");
+        check (at (MicType::Ribbon121, 120.0) > at (MicType::Dynamic57, 120.0) * 1.15, "ribbon has more proximity bass");
+        check (at (MicType::Condenser, 7000.0) > at (MicType::Dynamic57, 7000.0) * 1.5, "condenser has more extended top");
+    });
+
+    test ("Room ambience widens the image and is dry at zero", []
+    {
+        RoomAmbience room; room.prepare (48000.0);
+        const auto in = sine (300.0, 48000.0, 24000, 0.3f);
+        double diff0 = 0.0, diff1 = 0.0, maxErr = 0.0;
+        for (float x : in) { float l, r; room.process (x, 0.0f, l, r); maxErr = std::fmax (maxErr, std::fabs (l - x)); diff0 += std::fabs (l - r); }
+        RoomAmbience room2; room2.prepare (48000.0);
+        for (float x : in) { float l, r; room2.process (x, 0.6f, l, r); diff1 += std::fabs (l - r); }
+        check (maxErr < 1e-7 && diff0 < 1e-6, "amount 0 = dry mono");
+        check (diff1 / static_cast<double> (in.size()) > 0.02, "amount > 0 = decorrelated left/right");
+    });
+
     test ("Noise gate closes on hiss and opens on a note", []
     {
         NoiseGate g;

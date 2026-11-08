@@ -8,7 +8,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The suite (`tests/core_tests.cpp`, 736 checks) covers every amp model and
+The core suite (`tests/core_tests.cpp`, 8,629 checks) and the NAM suite
+(`tests/nam_tests.cpp`, 37 checks) cover every amp model and
 cabinet: passive tone stacks, 12AX7 operating points, grid bias shift and
 recovery, bounded output at extreme settings, distortion rising with gain,
 clean models staying clean, volume-knob cleanup, level matching, pairwise
@@ -20,7 +21,7 @@ Plugin validation (from Phase 6, run locally now if you like):
 [pluginval](https://github.com/Tracktion/pluginval) at strictness 5+ against
 the built `Viridian Forge.vst3`.
 
-## Manual checklist (Phase 2)
+## Manual checklist (Phase 3)
 
 Use headphones for the standalone app.
 
@@ -41,6 +42,17 @@ Use headphones for the standalone app.
 - [ ] Hard picking compresses and blooms; light picking is cleaner (touch sensitivity).
 - [ ] POWER TUBES: Stock and each swap sound different.
 
+**NAM**
+- [ ] AMP SOURCE → NAM; LOAD → Import a `.nam` file: the slot shows its name, gear and rate.
+- [ ] Playing through the capture sounds like the captured amp; switching captures while playing is click-free.
+- [ ] Gain drives the capture harder; EQ knobs are flat at 5; Master changes level.
+- [ ] Run the session at 44.1 kHz with a 48 kHz capture: it sounds the same (automatic resampling).
+- [ ] X unloads (dry signal passes through); saving and reopening the session reloads the capture.
+
+**Graphic EQ (Sierra Mk models)**
+- [ ] Faders appear on the grille only for Mark-series models; GEQ switch bypasses them.
+- [ ] Classic "V" (80 up, 750 down, 6.6k up) gives the expected scooped Mark lead tone.
+
 **Amp controls**
 - [ ] GAIN sweeps clean → saturated; rolling back guitar volume cleans up.
 - [ ] BASS, MIDDLE, TREBLE each change tone; turning MIDDLE down also shifts bass/treble (interactive stack).
@@ -51,6 +63,11 @@ Use headphones for the standalone app.
 - [ ] CAB switch off gives the raw (fizzy) amp output for use with external IRs; switching is click-free.
 - [ ] Each CABINET sounds different; the graphic shows the right speaker count.
 - [ ] MIC POS toward 10 darkens the tone; DISTANCE toward 0 adds low end.
+- [ ] MICROPHONE: ribbon is darker and fuller, condenser brighter than dynamic.
+- [ ] IR A: LOAD a WAV IR; it replaces the built-in cab. IR A + B: BLEND morphs A↔B; PHASE B
+      flips B (thin/hollow when blended = phase cancellation working); STEREO puts A left, B right.
+- [ ] LOW CUT / HIGH CUT tame boom and fizz; ROOM widens the sound into stereo.
+- [ ] Choosing an IR mode with no IR loaded falls back to the built-in cab.
 - [ ] Double-click any knob resets it to default.
 
 **UI**

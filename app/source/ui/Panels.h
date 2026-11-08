@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "Widgets.h"
+#include "../PluginProcessor.h"
 
 /** Rack-style header: brand, preset slot, tuner, CPU, meters, utility buttons. */
 class TopBar : public juce::Component
@@ -22,25 +23,33 @@ private:
     juce::Image logo;
 };
 
-/** The large amplifier head with all front-panel controls. */
+/** The large amplifier head with all front-panel controls. The grille carries the
+    amp-source switch (modeled / NAM), the NAM capture slot, and the 5-band graphic
+    EQ on models that have one. */
 class AmpHeadPanel : public juce::Component
 {
 public:
-    explicit AmpHeadPanel (APVTS& state);
+    AmpHeadPanel (APVTS& state, ViridianForgeProcessor& processor);
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
     juce::Rectangle<float> faceplateArea() const;
-
+    juce::Rectangle<float> grilleArea() const;
     void modelChanged (int index);
+    void updateMode();
 
-    ChannelSelector channel;
+    APVTS& state;
+    ChannelSelector channel, source;
     LabeledKnob gain, bass, middle, treble, presence, resonance, master;
-    LedSwitch bright, deep, boost;
+    LedSwitch bright, deep, boost, geqOn;
     AmpModelSelector model;
     ChoiceBox tubeSwap;
+    juce::OwnedArray<LabeledFader> geq;
+    FileSlot namSlot { "NAM CAPTURE", "NAM", "*.nam" };
+    std::unique_ptr<juce::ParameterAttachment> sourceWatch;
     juce::String badgeName, badgeCategory;
+    bool namMode = false, hasGeq = false;
 };
 
 /** Input/gate/output strip to the left/right of the amp. */
@@ -56,22 +65,26 @@ private:
     LedSwitch gateOn;
 };
 
-/** Cabinet section. Phase 1: built-in 4x12 response on/off. Phase 3: IR loader, mics. */
+/** Cabinet section: built-in cab (cabinet, mic type, position, distance) or loaded
+    impulse responses (A, A+B blend / stereo, phase), plus low/high cut and room. */
 class CabPanel : public juce::Component
 {
 public:
-    explicit CabPanel (APVTS& state);
+    CabPanel (APVTS& state, ViridianForgeProcessor& processor);
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
     juce::Rectangle<float> cabArea() const;
+    void updateMode();
 
-    LedSwitch cabOn;
-    ChoiceBox cabModel;
-    LabeledKnob micPosition, micDistance;
-    std::unique_ptr<juce::ParameterAttachment> modelWatch;
-    int currentCab = 0;
+    LedSwitch cabOn, phaseB, stereo;
+    ChannelSelector source;
+    ChoiceBox cabModel, micType;
+    LabeledKnob micPosition, micDistance, blend, lowCut, highCut, room;
+    FileSlot irA { "IR A", "IRs", "*.wav;*.aif;*.aiff" }, irB { "IR B", "IRs", "*.wav;*.aif;*.aiff" };
+    std::unique_ptr<juce::ParameterAttachment> modelWatch, sourceWatch;
+    int currentCab = 0, mode = 0;
 };
 
 /** Signal chain overview. Blocks that exist are live (click toggles bypass);

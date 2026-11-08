@@ -89,8 +89,10 @@ void TopBar::resized()
 }
 
 //==============================================================================
-AmpHeadPanel::AmpHeadPanel (APVTS& s)
-    : channel (s, vf::ParamID::channel),
+AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor)
+    : state (s),
+      channel (s, vf::ParamID::channel),
+      source (s, vf::ParamID::ampSource),
       gain (s, vf::ParamID::gain, "Gain"),
       bass (s, vf::ParamID::bass, "Bass"),
       middle (s, vf::ParamID::middle, "Middle"),
@@ -101,14 +103,43 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s)
       bright (s, vf::ParamID::bright, "Bright"),
       deep (s, vf::ParamID::deep, "Deep"),
       boost (s, vf::ParamID::boost, "Boost"),
+      geqOn (s, vf::ParamID::geqOn, "GEQ"),
       model (s, vf::ParamID::ampModel),
       tubeSwap (s, vf::ParamID::tubeSwap, "Power tubes")
 {
-    for (auto* c : std::initializer_list<Component*> { &channel, &gain, &bass, &middle, &treble, &presence, &resonance, &master,
+    for (auto* c : std::initializer_list<Component*> { &channel, &source, &gain, &bass, &middle, &treble, &presence, &resonance, &master,
                                                        &bright, &deep, &boost, &model, &tubeSwap })
         addAndMakeVisible (c);
+    addChildComponent (geqOn);
+    addChildComponent (namSlot);
+
+    const char* geqLabels[] = { "80", "240", "750", "2.2k", "6.6k" };
+    for (size_t b = 0; b < 5; ++b)
+        addChildComponent (geq.add (new LabeledFader (s, vf::ParamID::geqBands[b], geqLabels[b])));
+
+    namSlot.getStatus = [&processor]
+    {
+        const auto st = processor.getNamStatus();
+        return FileSlot::Status { static_cast<int> (st.state), st.description, st.error };
+    };
+    namSlot.onLoad = [&processor] (const File& f) { processor.loadNamModel (f); };
+    namSlot.onClear = [&processor] { processor.unloadNamModel(); };
+    namSlot.getLibraryFolder = [] { return ViridianForgeProcessor::getLibraryFolder ("NAM"); };
+    namSlot.importFile = [] (const File& f) { return ViridianForgeProcessor::importIntoLibrary (f, "NAM"); };
+
+    if (! ViridianForgeProcessor::isNamAvailable())
+    {
+        source.setEnabled (false);
+        source.setTooltip ("This build was compiled without NAM support");
+    }
 
     model.onModelChanged = [this] (int index) { modelChanged (index); };
+    sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::ampSource), [this] (float v)
+    {
+        namMode = v > 0.5f;
+        updateMode();
+    });
+    sourceWatch->sendInitialUpdate();
     modelChanged (model.getModel());
 }
 
@@ -119,8 +150,26 @@ void AmpHeadPanel::modelChanged (int index)
     for (int i = 0; i < spec.numChannels; ++i)
         names.add (spec.channels[static_cast<size_t> (i)].name);
     channel.setChannelNames (names);
+    hasGeq = spec.hasGEQ;
     badgeName = String (spec.name).toUpperCase();
     badgeCategory = vf::models::categoryName (spec.category);
+    updateMode();
+}
+
+void AmpHeadPanel::updateMode()
+{
+    for (auto* c : std::initializer_list<Component*> { &channel, &model, &tubeSwap })
+    {
+        c->setEnabled (! namMode);
+        c->setAlpha (namMode ? 0.35f : 1.0f);
+    }
+    const bool showGeq = hasGeq && ! namMode;
+    geqOn.setVisible (showGeq);
+    for (auto* f : geq) f->setVisible (showGeq);
+    namSlot.setVisible (namMode);
+    gain.getSlider().setTooltip (namMode ? "Drive into the NAM capture" : "Gain (double-click to reset)");
+    master.getSlider().setTooltip (namMode ? "Output level after the NAM capture" : "Master: power-amp drive (double-click to reset)");
+    resized();
     repaint();
 }
 
@@ -128,6 +177,12 @@ Rectangle<float> AmpHeadPanel::faceplateArea() const
 {
     auto r = getLocalBounds().toFloat().reduced (getWidth() * 0.025f, getHeight() * 0.06f);
     return r.withTrimmedTop (r.getHeight() * 0.40f);
+}
+
+Rectangle<float> AmpHeadPanel::grilleArea() const
+{
+    auto inner = getLocalBounds().toFloat().reduced (2.0f).reduced (getWidth() * 0.025f, getHeight() * 0.06f);
+    return inner.removeFromTop (inner.getHeight() * 0.38f);
 }
 
 void AmpHeadPanel::paint (Graphics& g)
@@ -149,9 +204,8 @@ void AmpHeadPanel::paint (Graphics& g)
     g.setColour (t.accent.withAlpha (0.9f));
     g.drawRoundedRectangle (r.reduced (5.0f), 11.0f, 1.6f);
 
-    // Grille (upper area)
-    auto inner = r.reduced (getWidth() * 0.025f, getHeight() * 0.06f);
-    auto grille = inner.removeFromTop (inner.getHeight() * 0.38f);
+    // Grille
+    auto grille = grilleArea();
     g.setColour (t.grille);
     g.fillRoundedRectangle (grille, 6.0f);
     g.setColour (Colours::black.withAlpha (0.18f));
@@ -160,22 +214,46 @@ void AmpHeadPanel::paint (Graphics& g)
     g.setColour (Colours::black.withAlpha (0.3f));
     g.drawRoundedRectangle (grille, 6.0f, 2.0f);
 
-    // Brand badge on the grille
-    auto badge = grille.withSizeKeepingCentre (jmin (360.0f, grille.getWidth() * 0.45f), grille.getHeight() * 0.42f);
+    // Panels on the grille: source switch, graphic EQ / NAM slot
+    auto drawInset = [&] (Rectangle<float> area, const String& label)
+    {
+        g.setColour (Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (area, 6.0f);
+        g.setColour (t.panelEdge);
+        g.drawRoundedRectangle (area.reduced (0.5f), 6.0f, 1.0f);
+        g.setColour (Colour (vf::brand::brushedSteel).withAlpha (0.8f));
+        g.setFont (ViridianLookAndFeel::labelFont (10.0f));
+        g.drawText (label, area.reduced (8.0f, 4.0f).removeFromTop (12.0f), Justification::centredLeft);
+    };
+    drawInset (source.getBounds().toFloat().expanded (6.0f, 0.0f).withTop (source.getY() - 18.0f).withBottom (source.getBottom() + 6.0f), "AMP SOURCE");
+    if (geqOn.isVisible())
+    {
+        auto area = geqOn.getBounds().getUnion (geq.getLast()->getBounds()).toFloat().expanded (6.0f, 0.0f);
+        drawInset (area.withTop (area.getY() - 18.0f).withBottom (area.getBottom() + 4.0f), "GRAPHIC EQ");
+    }
+
+    // Brand badge
+    const auto badgeName2 = namMode ? String ("NEURAL CAPTURE") : badgeName;
+    const auto badgeCat2 = namMode ? String ("Neural Amp Modeler") : badgeCategory;
+    const float badgeW = jmin (300.0f, grille.getWidth() * (namMode || geqOn.isVisible() ? 0.3f : 0.42f));
+    auto badge = Rectangle<float> (badgeW, grille.getHeight() * 0.42f)
+                     .withCentre ({ namMode || geqOn.isVisible() ? (float) source.getRight() + (grille.getRight() - (float) source.getRight()) * (namMode ? 0.24f : 0.30f)
+                                                                 : grille.getCentreX(),
+                                    grille.getCentreY() - 6.0f });
     g.setColour (Colours::black.withAlpha (0.45f));
     g.fillRoundedRectangle (badge.translated (0, 3), 8.0f);
     g.setGradientFill (ColourGradient (Colour (0xff2a2a2a), badge.getX(), badge.getY(), Colour (0xff0d0d0d), badge.getX(), badge.getBottom(), false));
     g.fillRoundedRectangle (badge, 8.0f);
     g.setColour (t.accent);
     g.drawRoundedRectangle (badge.reduced (2.0f), 6.0f, 1.5f);
-    g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.48f).withExtraKerningFactor (0.18f));
-    g.drawText ("VIRIDIAN", badge.withTrimmedBottom (badge.getHeight() * 0.25f), Justification::centred);
+    g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.44f).withExtraKerningFactor (0.18f));
+    g.drawFittedText ("VIRIDIAN", badge.withTrimmedBottom (badge.getHeight() * 0.25f).toNearestInt(), Justification::centred, 1);
     g.setColour (Colour (vf::brand::brushedSteel));
-    g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.17f).withExtraKerningFactor (0.25f));
-    g.drawFittedText (badgeName, badge.withTrimmedTop (badge.getHeight() * 0.6f).reduced (8.0f, 0.0f).toNearestInt(), Justification::centred, 1);
+    g.setFont (ViridianLookAndFeel::labelFont (badge.getHeight() * 0.16f).withExtraKerningFactor (0.2f));
+    g.drawFittedText (badgeName2, badge.withTrimmedTop (badge.getHeight() * 0.6f).reduced (8.0f, 0.0f).toNearestInt(), Justification::centred, 1);
     g.setColour (Colour (vf::brand::brushedSteel).withAlpha (0.75f));
     g.setFont (ViridianLookAndFeel::labelFont (11.0f, false).withExtraKerningFactor (0.3f));
-    g.drawText (badgeCategory.toUpperCase(), Rectangle<float> (badge.getX() - 60.0f, badge.getBottom() + 8.0f, badge.getWidth() + 120.0f, 16.0f), Justification::centred);
+    g.drawText (badgeCat2.toUpperCase(), Rectangle<float> (badge.getX() - 60.0f, badge.getBottom() + 8.0f, badge.getWidth() + 120.0f, 16.0f), Justification::centred);
 
     // Faceplate (brushed metal)
     auto plate = faceplateArea();
@@ -193,7 +271,6 @@ void AmpHeadPanel::paint (Graphics& g)
     ViridianLookAndFeel::drawScrew (g, { plate.getX() + sr * 2.5f, plate.getBottom() - sr * 2.5f }, sr);
     ViridianLookAndFeel::drawScrew (g, { plate.getRight() - sr * 2.5f, plate.getBottom() - sr * 2.5f }, sr);
 
-    // Section legends
     g.setColour (t.textDim);
     g.setFont (ViridianLookAndFeel::labelFont (10.0f));
     g.drawText ("CHANNEL", channel.getBounds().toFloat().translated (26, -14).withHeight (12), Justification::centredLeft);
@@ -201,9 +278,25 @@ void AmpHeadPanel::paint (Graphics& g)
 
 void AmpHeadPanel::resized()
 {
+    // Grille: source switch on the left, graphic EQ or NAM slot on the right
+    auto grille = grilleArea().toNearestInt().reduced (14, 10);
+    source.setBounds (grille.removeFromLeft (jmin (190, grille.getWidth() / 5)).withSizeKeepingCentre (jmin (190, grille.getWidth() / 5), 48).translated (0, 6));
+    if (namMode)
+    {
+        const int w = grille.getWidth() * 52 / 100;
+        namSlot.setBounds (grille.removeFromRight (w).withSizeKeepingCentre (w, 64));
+    }
+    else if (hasGeq)
+    {
+        auto eq = grille.removeFromRight (jmin (300, grille.getWidth() * 45 / 100)).withTrimmedTop (16);
+        geqOn.setBounds (eq.removeFromLeft (52).withSizeKeepingCentre (52, 56));
+        const int fw = eq.getWidth() / 5;
+        for (auto* f : geq) f->setBounds (eq.removeFromLeft (fw).reduced (2, 0));
+    }
+
     auto plate = faceplateArea().toNearestInt().reduced (getWidth() / 60, getHeight() / 40);
 
-    // Top row of the faceplate: channel switch, switches, voicing selectors
+    // Top row of the faceplate: channel switch, switches, model and tube selectors
     auto top = plate.removeFromTop (plate.getHeight() * 30 / 100);
     top.removeFromTop (14);
     channel.setBounds (top.removeFromLeft (top.getWidth() * 34 / 100));
@@ -249,16 +342,42 @@ void IOPanel::resized()
 }
 
 //==============================================================================
-CabPanel::CabPanel (APVTS& s)
+CabPanel::CabPanel (APVTS& s, ViridianForgeProcessor& processor)
     : cabOn (s, vf::ParamID::cabEnabled, "Cab"),
+      phaseB (s, vf::ParamID::irPhaseB, "Phase B"),
+      stereo (s, vf::ParamID::cabStereo, "Stereo"),
+      source (s, vf::ParamID::cabSource),
       cabModel (s, vf::ParamID::cabModel, "Cabinet"),
+      micType (s, vf::ParamID::micType, "Microphone"),
       micPosition (s, vf::ParamID::micPosition, "Mic Pos"),
-      micDistance (s, vf::ParamID::micDistance, "Distance")
+      micDistance (s, vf::ParamID::micDistance, "Distance"),
+      blend (s, vf::ParamID::irBlend, "A / B"),
+      lowCut (s, vf::ParamID::cabLowCut, "Low Cut"),
+      highCut (s, vf::ParamID::cabHighCut, "High Cut"),
+      room (s, vf::ParamID::room, "Room")
 {
-    for (auto* c : std::initializer_list<Component*> { &cabOn, &cabModel, &micPosition, &micDistance })
+    for (auto* c : std::initializer_list<Component*> { &cabOn, &source, &lowCut, &highCut, &room, &stereo })
         addAndMakeVisible (c);
+    for (auto* c : std::initializer_list<Component*> { &cabModel, &micType, &micPosition, &micDistance, &irA, &irB, &blend, &phaseB })
+        addChildComponent (c);
+
     micPosition.getSlider().setTooltip ("Mic position: 0 = cone centre (bright), 10 = cone edge (dark)");
     micDistance.getSlider().setTooltip ("Mic distance: 0 = on the grille (more bass), 10 = further back");
+    stereo.getButton().setTooltip ("IR A+B: A left / B right. Otherwise the room adds the stereo image.");
+
+    for (int slot = 0; slot < 2; ++slot)
+    {
+        auto& fs = slot == 0 ? irA : irB;
+        fs.getStatus = [&processor, slot]
+        {
+            const auto st = processor.getIrStatus (slot);
+            return FileSlot::Status { static_cast<int> (st.state), st.description, st.error };
+        };
+        fs.onLoad = [&processor, slot] (const File& f) { processor.loadImpulseResponse (slot, f); };
+        fs.onClear = [&processor, slot] { processor.clearImpulseResponse (slot); };
+        fs.getLibraryFolder = [] { return ViridianForgeProcessor::getLibraryFolder ("IRs"); };
+        fs.importFile = [] (const File& f) { return ViridianForgeProcessor::importIntoLibrary (f, "IRs"); };
+    }
 
     modelWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::cabModel), [this] (float v)
     {
@@ -266,13 +385,32 @@ CabPanel::CabPanel (APVTS& s)
         repaint();
     });
     modelWatch->sendInitialUpdate();
+    sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::cabSource), [this] (float v)
+    {
+        mode = roundToInt (v);
+        updateMode();
+    });
+    sourceWatch->sendInitialUpdate();
+}
+
+void CabPanel::updateMode()
+{
+    const bool builtIn = mode == 0;
+    for (auto* c : std::initializer_list<Component*> { &cabModel, &micType, &micPosition, &micDistance })
+        c->setVisible (builtIn);
+    irA.setVisible (! builtIn);
+    irB.setVisible (mode == 2);
+    blend.setVisible (mode == 2);
+    phaseB.setVisible (mode == 2);
+    resized();
+    repaint();
 }
 
 Rectangle<float> CabPanel::cabArea() const
 {
-    auto r = getLocalBounds().toFloat().reduced (14.0f);
-    r.removeFromTop (78.0f);                       // title + selector
-    r.removeFromBottom (r.getHeight() * 0.36f);    // mic knobs + note
+    if (mode != 0 || ! micType.isVisible()) return {};
+    auto top = micType.getBottom() + 6, bottom = micPosition.getY() - 4;
+    auto r = Rectangle<float> ((float) getX() * 0.0f + 14.0f, (float) top, (float) getWidth() - 28.0f, (float) jmax (0, bottom - top));
     return r.withSizeKeepingCentre (jmin (r.getWidth(), r.getHeight() * 1.1f), r.getHeight());
 }
 
@@ -281,51 +419,88 @@ void CabPanel::paint (Graphics& g)
     const auto t = themeOf (*this);
     drawPanelBackground (g, getLocalBounds().toFloat(), t, "CABINET");
 
-    const String name (vf::dsp::cabModelNames[static_cast<size_t> (jlimit (0, (int) vf::dsp::CabModel::count - 1, currentCab))]);
-    const int speakers = name.startsWith ("4") ? 4 : (name.startsWith ("2") ? 2 : 1);
-    const bool tens = name.contains ("x10");
-
-    auto cab = cabArea();
-    if (speakers == 1) cab = cab.withSizeKeepingCentre (cab.getWidth() * 0.8f, cab.getHeight() * 0.8f);
-    if (speakers == 2) cab = cab.withSizeKeepingCentre (cab.getWidth(), cab.getHeight() * 0.62f);
-    g.setColour (t.tolex);
-    g.fillRoundedRectangle (cab, 8.0f);
-    auto cloth = cab.reduced (cab.getWidth() * 0.06f);
-    g.setColour (t.grille);
-    g.fillRoundedRectangle (cloth, 4.0f);
-
-    const float d = jmin (cloth.getWidth(), cloth.getHeight()) * (speakers == 1 ? 0.78f : (speakers == 2 ? 0.8f : 0.44f)) * (tens ? 0.85f : 1.0f);
-    g.setColour (Colours::black.withAlpha (0.22f));
-    for (int i = 0; i < speakers; ++i)
+    if (mode == 0)
     {
-        float cx = cloth.getCentreX(), cy = cloth.getCentreY();
-        if (speakers == 2) cx = cloth.getX() + cloth.getWidth() * (i == 0 ? 0.27f : 0.73f);
-        if (speakers == 4)
+        const String name (vf::dsp::cabModelNames[static_cast<size_t> (jlimit (0, (int) vf::dsp::CabModel::count - 1, currentCab))]);
+        const int speakers = name.startsWith ("4") ? 4 : (name.startsWith ("2") ? 2 : 1);
+        const bool tens = name.contains ("x10");
+
+        auto cab = cabArea();
+        if (! cab.isEmpty())
         {
-            cx = cloth.getX() + cloth.getWidth() * (i % 2 == 0 ? 0.27f : 0.73f);
-            cy = cloth.getY() + cloth.getHeight() * (i < 2 ? 0.27f : 0.73f);
+            if (speakers == 1) cab = cab.withSizeKeepingCentre (cab.getWidth() * 0.8f, cab.getHeight() * 0.85f);
+            if (speakers == 2) cab = cab.withSizeKeepingCentre (cab.getWidth(), cab.getHeight() * 0.62f);
+            g.setColour (t.tolex);
+            g.fillRoundedRectangle (cab, 8.0f);
+            auto cloth = cab.reduced (cab.getWidth() * 0.06f);
+            g.setColour (t.grille);
+            g.fillRoundedRectangle (cloth, 4.0f);
+            const float d = jmin (cloth.getWidth(), cloth.getHeight()) * (speakers == 1 ? 0.78f : (speakers == 2 ? 0.8f : 0.44f)) * (tens ? 0.85f : 1.0f);
+            g.setColour (Colours::black.withAlpha (0.22f));
+            for (int i = 0; i < speakers; ++i)
+            {
+                float cx = cloth.getCentreX(), cy = cloth.getCentreY();
+                if (speakers == 2) cx = cloth.getX() + cloth.getWidth() * (i == 0 ? 0.27f : 0.73f);
+                if (speakers == 4)
+                {
+                    cx = cloth.getX() + cloth.getWidth() * (i % 2 == 0 ? 0.27f : 0.73f);
+                    cy = cloth.getY() + cloth.getHeight() * (i < 2 ? 0.27f : 0.73f);
+                }
+                g.drawEllipse (cx - d / 2, cy - d / 2, d, d, 2.0f);
+                g.fillEllipse (cx - d * 0.1f, cy - d * 0.1f, d * 0.2f, d * 0.2f);
+            }
         }
-        g.drawEllipse (cx - d / 2, cy - d / 2, d, d, 2.0f);
-        g.fillEllipse (cx - d * 0.1f, cy - d * 0.1f, d * 0.2f, d * 0.2f);
     }
 
     g.setColour (t.textDim);
     g.setFont (ViridianLookAndFeel::labelFont (10.0f, false));
-    g.drawFittedText (String ("Speaker voice: ") + vf::dsp::getCabinetSpec (static_cast<vf::dsp::CabModel> (jlimit (0, (int) vf::dsp::CabModel::count - 1, currentCab))).speaker
-                      + ".  IR loader: Phase 3", getLocalBounds().reduced (10).removeFromBottom (24), Justification::centred, 2);
+    const String note = mode == 0 ? String ("Speaker voice: ") + vf::dsp::getCabinetSpec (static_cast<vf::dsp::CabModel> (jlimit (0, (int) vf::dsp::CabModel::count - 1, currentCab))).speaker
+                                  : String ("Load WAV/AIFF impulse responses (any rate)");
+    g.drawFittedText (note, getLocalBounds().reduced (10).removeFromBottom (14), Justification::centred, 1);
 }
 
 void CabPanel::resized()
 {
     auto r = getLocalBounds().reduced (10);
-    auto header = r.removeFromTop (34);
-    cabOn.setBounds (header.removeFromRight (64));
-    cabModel.setBounds (r.removeFromTop (40).reduced (2, 0));
-    r.removeFromBottom (26);
-    const auto cab = cabArea();
-    auto knobs = r.withTop (roundToInt (cab.getBottom()) + 4);
-    micPosition.setBounds (knobs.removeFromLeft (knobs.getWidth() / 2).reduced (4, 0));
-    micDistance.setBounds (knobs.reduced (4, 0));
+    auto header = r.removeFromTop (30);
+    cabOn.setBounds (header.removeFromRight (60));
+    r.removeFromBottom (16); // note
+
+    source.setBounds (r.removeFromTop (46));
+    r.removeFromTop (6);
+
+    // Shared bottom row: low cut, high cut, room (+ stereo switch)
+    const int knobH = jlimit (60, 90, r.getHeight() / 6);
+    auto bottom = r.removeFromBottom (knobH);
+    auto stereoArea = bottom.removeFromRight (bottom.getWidth() / 4);
+    stereo.setBounds (stereoArea.withSizeKeepingCentre (stereoArea.getWidth(), jmin (52, stereoArea.getHeight())));
+    const int bw = bottom.getWidth() / 3;
+    lowCut.setBounds (bottom.removeFromLeft (bw));
+    highCut.setBounds (bottom.removeFromLeft (bw));
+    room.setBounds (bottom);
+    r.removeFromBottom (6);
+
+    if (mode == 0)
+    {
+        cabModel.setBounds (r.removeFromTop (40).reduced (2, 0));
+        micType.setBounds (r.removeFromTop (40).reduced (2, 0));
+        auto knobs = r.removeFromBottom (knobH);
+        micPosition.setBounds (knobs.removeFromLeft (knobs.getWidth() / 2).reduced (4, 0));
+        micDistance.setBounds (knobs.reduced (4, 0));
+    }
+    else
+    {
+        irA.setBounds (r.removeFromTop (48));
+        r.removeFromTop (6);
+        if (mode == 2)
+        {
+            irB.setBounds (r.removeFromTop (48));
+            r.removeFromTop (6);
+            auto row = r.removeFromTop (knobH);
+            blend.setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (4, 0));
+            phaseB.setBounds (row.withSizeKeepingCentre (jmin (80, row.getWidth()), jmin (52, row.getHeight())));
+        }
+    }
 }
 
 //==============================================================================

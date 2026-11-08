@@ -232,3 +232,31 @@ void ViridianLookAndFeel::drawComboBox (Graphics& g, int w, int h, bool, int, in
     g.setColour (theme.accent);
     g.fillPath (arrow);
 }
+
+void ViridianLookAndFeel::drawLinearSlider (Graphics& g, int x, int y, int w, int h, float sliderPos, float, float,
+                                            Slider::SliderStyle style, Slider& s)
+{
+    if (style != Slider::LinearVertical)
+    {
+        LookAndFeel_V4::drawLinearSlider (g, x, y, w, h, sliderPos, 0, 0, style, s);
+        return;
+    }
+    // Hardware fader: slot, centre detent mark, metal cap
+    const auto r = Rectangle<int> (x, y, w, h).toFloat();
+    const float cx = r.getCentreX();
+    g.setColour (Colours::black.withAlpha (0.7f));
+    g.fillRoundedRectangle (cx - 2.5f, r.getY() + 4.0f, 5.0f, r.getHeight() - 8.0f, 2.5f);
+    g.setColour (theme.textDim.withAlpha (0.6f));
+    g.drawHorizontalLine (roundToInt (r.getCentreY()), cx - 8.0f, cx + 8.0f);
+
+    const float capH = jmin (18.0f, r.getHeight() * 0.18f), capW = jmin (w * 0.8f, 24.0f);
+    auto cap = Rectangle<float> (capW, capH).withCentre ({ cx, sliderPos });
+    g.setColour (Colours::black.withAlpha (0.5f));
+    g.fillRoundedRectangle (cap.translated (0.0f, 2.0f), 3.0f);
+    ColourGradient metal (Colour (0xffeef0f2), cap.getX(), cap.getY(), Colour (0xff7d838a), cap.getX(), cap.getBottom(), false);
+    metal.addColour (0.5, Colour (0xffb7bcc2));
+    g.setGradientFill (metal);
+    g.fillRoundedRectangle (cap, 3.0f);
+    g.setColour (theme.accent);
+    g.fillRect (cap.withSizeKeepingCentre (cap.getWidth() - 6.0f, 2.0f));
+}

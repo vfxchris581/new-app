@@ -45,6 +45,9 @@ struct LoadResult
     std::string error; // empty on success
 };
 
+/** Number of NAM architectures guaranteed to be linked in (WaveNet, LSTM, ConvNet, Linear, Sequential, Container). */
+int numLinkedArchitectures() noexcept;
+
 /** Parse metadata only (fast; for browsing a library). Throws nothing; returns false on failure. */
 bool readInfo (const std::string& path, ModelInfo& info, std::string& error);
 

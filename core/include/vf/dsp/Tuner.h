@@ -135,7 +135,8 @@ public:
                 break;
             }
         }
-        if (tauEst < 0)
+        // Reject estimates at the edge of the search range: they are not real pitch periods.
+        if (tauEst < 0 || tauEst >= maxLag - 2)
             return r;
 
         // Parabolic interpolation around the minimum

@@ -46,8 +46,8 @@ private:
     APVTS::ComboBoxAttachment attachment;
 };
 
-/** Three latching channel buttons with LEDs (Clean / Crunch / Lead). */
-class ChannelSelector : public juce::Component
+/** Latching buttons with LEDs bound to a choice parameter (channel, amp source, cab source). */
+class ChannelSelector : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     ChannelSelector (APVTS& state, const juce::String& paramId);
@@ -79,6 +79,45 @@ private:
     juce::Label caption;
     std::unique_ptr<juce::ParameterAttachment> attachment;
     int current = 0;
+};
+
+/** Vertical fader with a label (graphic EQ band). */
+class LabeledFader : public juce::Component
+{
+public:
+    LabeledFader (APVTS& state, const juce::String& paramId, const juce::String& label);
+    void resized() override;
+
+private:
+    juce::Slider slider;
+    juce::Label caption;
+    APVTS::SliderAttachment attachment;
+};
+
+/** A file slot for a NAM capture or an impulse response: status line plus a LOAD
+    menu (library files, import, browse) and a clear button. Status is polled. */
+class FileSlot : public juce::Component, private juce::Timer
+{
+public:
+    struct Status { int state = 0; juce::String text, error; }; // 0 empty, 1 loading, 2 ready, 3 failed
+
+    FileSlot (juce::String title, juce::String libraryKind, juce::String wildcard);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+    std::function<Status()> getStatus;
+    std::function<void (const juce::File&)> onLoad;   // file chosen (already copied into the library when imported)
+    std::function<void()> onClear;
+    std::function<juce::File()> getLibraryFolder;
+    std::function<juce::File (const juce::File&)> importFile;
+
+private:
+    void timerCallback() override;
+    void showMenu();
+    juce::String title, kind, wildcard;
+    juce::TextButton loadButton { "LOAD" }, clearButton { "X" };
+    std::unique_ptr<juce::FileChooser> chooser;
+    Status shown;
 };
 
 /** Segmented peak meter with peak hold and clip indicator. */

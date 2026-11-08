@@ -12,6 +12,7 @@
 
 #include "Biquad.h"
 #include <array>
+#include <vector>
 
 namespace vf::dsp
 {
@@ -45,6 +46,13 @@ inline const CabinetSpec& getCabinetSpec (CabModel m)
     return specs[static_cast<size_t> (m)];
 }
 
+/** Microphone families with their characteristic close-mic response. */
+enum class MicType { Dynamic57 = 0, Ribbon121, Condenser, count };
+
+inline constexpr std::array<const char*, static_cast<size_t> (MicType::count)> micTypeNames {
+    "Dynamic (57-style)", "Ribbon (121-style)", "Condenser (87-style)"
+};
+
 inline constexpr std::array<const char*, static_cast<size_t> (CabModel::count)> cabModelNames {
     "1x12 American Open", "2x12 Alnico Open", "4x10 Tweed Open", "4x12 Greenback", "4x12 V30", "4x12 Modern Metal", "1x12 British Closed"
 };
@@ -67,11 +75,11 @@ public:
 
     /** micPosition: 0 = cone centre (bright) .. 1 = cone edge (dark).
         micDistance: 0 = on the grille (proximity boost) .. 1 = ~30 cm back. */
-    void setParams (CabModel model, float micPosition, float micDistance) noexcept
+    void setParams (CabModel model, float micPosition, float micDistance, MicType micType = MicType::Dynamic57) noexcept
     {
-        if (model != current || controlChanged (micPosition, pos) || controlChanged (micDistance, dist))
+        if (model != current || controlChanged (micPosition, pos) || controlChanged (micDistance, dist) || micType != mic)
         {
-            current = model; pos = micPosition; dist = micDistance;
+            current = model; pos = micPosition; dist = micDistance; mic = micType;
             dirty = true;
         }
     }
@@ -84,11 +92,22 @@ public:
         const auto& c = getCabinetSpec (current);
         const double p = pos, d = dist;
 
+        // Mic family: dynamic = classic upper-mid bite; ribbon = smooth, darker, big
+        // proximity effect; condenser = extended top, flatter presence.
+        double micRoll = 1.0, micPresence = 1.0, micProximity = 1.0, micBreakup = 1.0;
+        switch (mic)
+        {
+            case MicType::Ribbon121: micRoll = 0.72; micPresence = 0.45; micProximity = 1.5; micBreakup = 0.5; break;
+            case MicType::Condenser: micRoll = 1.35; micPresence = 0.7;  micProximity = 0.7; micBreakup = 1.2; break;
+            case MicType::Dynamic57:
+            case MicType::count:     break;
+        }
+
         const double lowCut = c.lowCutHz * (1.0 + 0.25 * d);              // further away: less low end
-        const double proximityDb = 5.0 * (1.0 - d) * (1.0 - d);          // close-mic bass boost
-        const double rollOff = c.rollOffHz * (1.0 - 0.45 * p) * (1.0 - 0.15 * d);
-        const double presenceDb = c.presenceDb * (1.0 - 0.6 * p);
-        const double breakupDb = c.breakupDb * (1.0 - 0.8 * p) - 1.5 * d;
+        const double proximityDb = 5.0 * micProximity * (1.0 - d) * (1.0 - d); // close-mic bass boost
+        const double rollOff = std::fmin (fs * 0.45, c.rollOffHz * micRoll * (1.0 - 0.45 * p) * (1.0 - 0.15 * d));
+        const double presenceDb = c.presenceDb * micPresence * (1.0 - 0.6 * p);
+        const double breakupDb = c.breakupDb * micBreakup * (1.0 - 0.8 * p) - 1.5 * d;
 
         filters[0].setCoeffs (BiquadCoeffs::highPass (fs, lowCut, c.openBack ? 0.6 : 0.85));
         filters[1].setCoeffs (BiquadCoeffs::peak (fs, c.resonanceHz, c.resonanceQ, c.openBack ? c.resonanceDb * 0.7 : c.resonanceDb));
@@ -118,8 +137,58 @@ private:
     double fs = 48000.0;
     std::array<Biquad, 9> filters;
     CabModel current = CabModel::Greenback4x12;
+    MicType mic = MicType::Dynamic57;
     float pos = 0.3f, dist = 0.2f;
     bool dirty = true;
+};
+
+/** Small stereo room: early reflections off nearby walls, as heard by a room mic.
+    Turns the mono amp/cab signal into a natural stereo image. */
+class RoomAmbience
+{
+public:
+    void prepare (double sampleRate)
+    {
+        fs = sampleRate;
+        const size_t len = static_cast<size_t> (0.04 * fs) + 2;
+        line.assign (len, 0.0f);
+        writePos = 0;
+        damping.setCoeffs (BiquadCoeffs::lowPass (fs, 5500.0, 0.6));
+        damping.reset();
+        for (size_t i = 0; i < taps; ++i)
+        {
+            tapL[i] = static_cast<int> (msL[i] * 0.001 * fs);
+            tapR[i] = static_cast<int> (msR[i] * 0.001 * fs);
+        }
+    }
+
+    /** amount 0..1 (wet level). Writes stereo output. */
+    void process (float in, float amount, float& left, float& right) noexcept
+    {
+        const float x = damping.process (in);
+        line[writePos] = x;
+        float l = 0.0f, r = 0.0f;
+        const int n = static_cast<int> (line.size());
+        for (size_t i = 0; i < taps; ++i)
+        {
+            l += gain[i] * line[static_cast<size_t> ((static_cast<int> (writePos) - tapL[i] + n) % n)];
+            r += gain[i] * line[static_cast<size_t> ((static_cast<int> (writePos) - tapR[i] + n) % n)];
+        }
+        writePos = (writePos + 1) % line.size();
+        left = in + amount * l;
+        right = in + amount * r;
+    }
+
+private:
+    static constexpr size_t taps = 6;
+    static constexpr float msL[taps] { 3.1f, 7.3f, 11.9f, 17.3f, 23.9f, 31.7f };
+    static constexpr float msR[taps] { 4.3f, 8.9f, 13.7f, 19.1f, 26.3f, 34.1f };
+    static constexpr float gain[taps] { 0.55f, -0.42f, 0.33f, -0.26f, 0.2f, -0.15f };
+    double fs = 48000.0;
+    std::vector<float> line;
+    size_t writePos = 0;
+    int tapL[taps] {}, tapR[taps] {};
+    Biquad damping;
 };
 
 } // namespace vf::dsp

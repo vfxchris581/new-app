@@ -294,3 +294,118 @@ void StatReadout::paint (Graphics& g)
     g.setFont (ViridianLookAndFeel::labelFont (jmin (16.0f, r.getHeight() * 0.8f)));
     g.drawText (valueText, r, Justification::centred);
 }
+
+//==============================================================================
+LabeledFader::LabeledFader (APVTS& state, const String& paramId, const String& label)
+    : attachment (state, paramId, slider)
+{
+    slider.setSliderStyle (Slider::LinearVertical);
+    slider.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
+    slider.setPopupDisplayEnabled (true, true, this);
+    slider.setDoubleClickReturnValue (true, 0.0);
+    slider.setTooltip (label + " (double-click to centre)");
+    addAndMakeVisible (slider);
+    caption.setText (label, dontSendNotification);
+    caption.setJustificationType (Justification::centred);
+    addAndMakeVisible (caption);
+}
+
+void LabeledFader::resized()
+{
+    auto r = getLocalBounds();
+    caption.setBounds (r.removeFromBottom (14));
+    slider.setBounds (r);
+}
+
+//==============================================================================
+FileSlot::FileSlot (String t, String libraryKind, String wc)
+    : title (std::move (t)), kind (std::move (libraryKind)), wildcard (std::move (wc))
+{
+    addAndMakeVisible (loadButton);
+    addAndMakeVisible (clearButton);
+    loadButton.onClick = [this] { showMenu(); };
+    clearButton.onClick = [this] { if (onClear) onClear(); };
+    clearButton.setTooltip ("Clear");
+    startTimerHz (8);
+}
+
+void FileSlot::timerCallback()
+{
+    if (! getStatus) return;
+    const auto st = getStatus();
+    if (st.state != shown.state || st.text != shown.text || st.error != shown.error)
+    {
+        shown = st;
+        clearButton.setEnabled (shown.state != 0);
+        repaint();
+    }
+}
+
+void FileSlot::paint (Graphics& g)
+{
+    const auto t = themeOf (*this);
+    auto r = getLocalBounds().toFloat();
+    g.setColour (Colours::black.withAlpha (0.35f));
+    g.fillRoundedRectangle (r, 4.0f);
+    g.setColour (t.panelEdge);
+    g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+
+    auto text = getLocalBounds().reduced (6, 2).withTrimmedRight (loadButton.getWidth() + clearButton.getWidth() + 8);
+    const Colour led = shown.state == 2 ? t.led : (shown.state == 1 ? Colour (0xffffb02e) : (shown.state == 3 ? Colour (0xffff453a) : t.ledOff));
+    ViridianLookAndFeel::drawLed (g, text.removeFromLeft (10).toFloat().withSizeKeepingCentre (7.0f, 7.0f), led, shown.state != 0);
+    text.removeFromLeft (4);
+    g.setColour (t.textDim);
+    g.setFont (ViridianLookAndFeel::labelFont (10.0f));
+    g.drawText (title, text.removeFromTop (14), Justification::bottomLeft);
+    g.setColour (shown.state == 3 ? Colour (0xffff6b60) : t.text);
+    g.setFont (ViridianLookAndFeel::labelFont (11.0f, false));
+    const String line = shown.state == 0 ? String ("Empty - click LOAD")
+                      : shown.state == 1 ? String ("Loading ") + shown.text + "..."
+                      : shown.state == 3 ? String ("Error: ") + shown.error
+                                         : shown.text;
+    g.drawFittedText (line, text, Justification::topLeft, jmax (1, text.getHeight() / 13), 1.0f);
+}
+
+void FileSlot::resized()
+{
+    auto r = getLocalBounds().reduced (4);
+    clearButton.setBounds (r.removeFromRight (26).withSizeKeepingCentre (26, jmin (24, r.getHeight())));
+    r.removeFromRight (4);
+    loadButton.setBounds (r.removeFromRight (54).withSizeKeepingCentre (54, jmin (24, r.getHeight())));
+}
+
+void FileSlot::showMenu()
+{
+    PopupMenu menu;
+    Array<File> files;
+    if (getLibraryFolder)
+    {
+        files = getLibraryFolder().findChildFiles (File::findFiles, false, wildcard);
+        files.sort();
+        PopupMenu lib;
+        for (int i = 0; i < files.size(); ++i) lib.addItem (100 + i, files[i].getFileNameWithoutExtension());
+        if (files.isEmpty()) lib.addItem (1, "(library is empty - use Import)", false, false);
+        menu.addSubMenu ("Library", lib);
+    }
+    menu.addItem (2, "Import into library...");
+    menu.addItem (3, "Load from disk...");
+    menu.addSeparator();
+    menu.addItem (4, "Show library folder");
+
+    menu.showMenuAsync (PopupMenu::Options().withTargetComponent (&loadButton), [this, files] (int result)
+    {
+        if (result >= 100 && result - 100 < files.size()) { if (onLoad) onLoad (files[result - 100]); return; }
+        if (result == 4 && getLibraryFolder) { getLibraryFolder().revealToUser(); return; }
+        if (result != 2 && result != 3) return;
+        const bool import = result == 2;
+        chooser = std::make_unique<FileChooser> (import ? "Import into the " + kind + " library" : "Load " + title,
+                                                 getLibraryFolder ? getLibraryFolder() : File(), wildcard);
+        chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles, [this, import] (const FileChooser& fc)
+        {
+            const auto f = fc.getResult();
+            if (! f.existsAsFile()) return;
+            const auto target = (import && importFile) ? importFile (f) : f;
+            if (onLoad) onLoad (target);
+        });
+    });
+}

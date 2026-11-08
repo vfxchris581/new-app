@@ -19,8 +19,8 @@ ViridianForgeEditor::ViridianForgeEditor (ViridianForgeProcessor& p)
     : AudioProcessorEditor (&p),
       processor (p),
       ioPanel (p.getState()),
-      ampHead (p.getState()),
-      cabPanel (p.getState()),
+      ampHead (p.getState(), p),
+      cabPanel (p.getState(), p),
       chain (p.getState())
 {
     setLookAndFeel (&laf);
@@ -127,7 +127,7 @@ void ViridianForgeEditor::resized()
     topBar.setBounds (r.removeFromTop (px (64)));
     r.reduce (px (12), px (12));
 
-    chain.setBounds (r.removeFromBottom (px (150)));
+    chain.setBounds (r.removeFromBottom (px (120)));
     r.removeFromBottom (px (12));
 
     ioPanel.setBounds (r.removeFromLeft (px (130)));
@@ -143,6 +143,7 @@ void ViridianForgeEditor::resized()
 
 void ViridianForgeEditor::timerCallback()
 {
+    processor.housekeeping(); // frees NAM models retired by the audio thread
     topBar.inMeter.pushPeak (processor.popInputPeak());
     topBar.outMeter.pushPeak (processor.popOutputPeak());
 
