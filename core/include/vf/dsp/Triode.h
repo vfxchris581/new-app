@@ -140,7 +140,10 @@ public:
         if (vg > 0.0f)
         {
             const float limited = gridLimit * std::tanh (vg / gridLimit); // grid current clamps positive swing
-            vc += charge * (vg - limited) * 0.5f;                         // and charges the coupling cap
+            // Grid current charges the coupling cap. The grid-stop resistor limits that
+            // current, so the bias shift saturates instead of growing with drive.
+            const float excess = vg - limited;
+            vc += charge * 0.15f * excess / (1.0f + excess * 0.08f) * (1.0f - vc / maxShift);
             vg = limited;
         }
         vc = flushDenormal (vc * leak);
@@ -152,6 +155,7 @@ public:
 private:
     float charge = 0.05f, leak = 0.9997f, vc = 0.0f;
     static constexpr float gridLimit = 0.9f; // volts
+    static constexpr float maxShift = 12.0f; // volts: practical ceiling set by the grid-stop/grid-leak divider
 };
 
 struct StageSpec

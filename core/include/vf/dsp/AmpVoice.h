@@ -252,7 +252,7 @@ private:
             stages[static_cast<size_t> (i)].prepare (fs, ch.stages[static_cast<size_t> (i)]);
 
         toneStack.prepare (fs);
-        toneStack.setComponents (m.stack);
+        toneStack.setComponents (ch.ownStack ? ch.stack : m.stack);
         stackMakeup = dbToGain (ch.stackMakeupDb);
         brightShelf.setCoeffs (BiquadCoeffs::highShelf (fs, ch.brightHz, 0.7, ch.brightDb));
 
@@ -282,7 +282,9 @@ private:
         {
             // Audio-taper pot: most of the useful range in the upper half, like the real control.
             const float g = s.gain / 10.0f;
-            const float taper = (std::pow (10.0f, 2.0f * g) - 1.0f) / 99.0f;
+            // High-gain channels use a steeper pot law (one decade per extra stage) so low settings give rhythm crunch, not fuzz.
+            const float decades = ch.numStages >= 5 ? 4.0f : (ch.numStages == 4 ? 3.0f : 2.0f);
+            const float taper = (std::pow (10.0f, decades * g) - 1.0f) / (std::pow (10.0f, decades) - 1.0f);
             const float minGain = dbToGain (ch.gainPotMinDb);
             const float value = minGain + (1.0f - minGain) * taper;
             if (force) potGain.snap (value); else potGain.setTarget (value);

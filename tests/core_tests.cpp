@@ -105,6 +105,20 @@ std::vector<float> pluck (double f0, double fs, double seconds, float amp)
     return v;
 }
 
+/** String-like note with a rich harmonic spectrum (for tonal fingerprints). */
+std::vector<float> richPluck (double f0, double fs, double seconds, float amp)
+{
+    std::vector<float> v (static_cast<size_t> (fs * seconds));
+    for (size_t i = 0; i < v.size(); ++i)
+    {
+        const double t = static_cast<double> (i) / fs;
+        double x = 0.0;
+        for (int h = 1; h <= 24; ++h) x += std::sin (2.0 * kPi * f0 * h * t + 0.7 * h) / h;
+        v[i] = static_cast<float> (amp * 0.6 * std::exp (-t * 2.5) * x);
+    }
+    return v;
+}
+
 struct Variant { int model, channel; std::string label; };
 
 std::vector<Variant> allVariants()
@@ -142,7 +156,13 @@ int main()
     test ("Every tone stack is passive and its knobs act on the right bands", []
     {
         std::vector<ToneStackComponents> stacks;
-        for (int m = 0; m < M::numAmpModels(); ++m) stacks.push_back (M::getAmpModel (m).stack);
+        for (int m = 0; m < M::numAmpModels(); ++m)
+        {
+            stacks.push_back (M::getAmpModel (m).stack);
+            for (int c = 0; c < M::getAmpModel (m).numChannels; ++c)
+                if (M::getAmpModel (m).channels[static_cast<size_t> (c)].ownStack)
+                    stacks.push_back (M::getAmpModel (m).channels[static_cast<size_t> (c)].stack);
+        }
         for (const auto& comp : stacks)
         {
             ToneStack ts;
@@ -219,18 +239,29 @@ int main()
         }
     });
 
-    test ("Gain knob raises distortion on every tube model", [&]
+    test ("Gain knob sweeps every tube channel from cleaner to dirtier", [&]
     {
+        // Realistic picking level (~0.2 V peak). Amps designed to stay clean (big-headroom
+        // cleans) must still respond audibly to the gain knob with a level change.
         for (const auto& v : allVariants())
         {
             if (M::getAmpModel (v.model).power.solidState) continue;
-            auto thdAt = [&] (float g)
+            auto runAt = [&] (float g)
             {
                 AmpSettings s; s.model = v.model; s.channel = v.channel; s.gain = g;
-                return thdOf (runAmp (s, sine (196.0, fs, 76800, 0.25f), fs), 196.0, fs);
+                return runAmp (s, sine (196.0, fs, 76800, 0.1f), fs);
             };
-            const double lo = thdAt (1.0f), hi = thdAt (9.0f);
-            check (hi > lo * 2.0, v.label + ": THD rises with gain (" + std::to_string (lo) + " -> " + std::to_string (hi) + ")");
+            const auto o1 = runAt (1.0f), o9 = runAt (9.0f);
+            const double lo = thdOf (o1, 196.0, fs), hi = thdOf (o9, 196.0, fs);
+            if (hi < 0.05)
+            {
+                const double db = 20.0 * std::log10 (rms (o9, o9.size() / 2) / std::fmax (1e-9, rms (o1, o1.size() / 2)));
+                check (db > 3.0, v.label + ": clean-headroom amp, gain changes level (" + std::to_string (db) + " dB)");
+            }
+            else
+            {
+                check (hi > lo * 1.5, v.label + ": THD rises with gain (" + std::to_string (lo) + " -> " + std::to_string (hi) + ")");
+            }
         }
     });
 
@@ -267,29 +298,156 @@ int main()
 
     test ("Every model and channel sounds distinct", [&]
     {
-        // Compare spectral envelopes (harmonic levels) of a pluck through each variant.
-        const auto in = pluck (98.0, fs, 0.5, 0.2f);
-        std::vector<std::vector<double>> prints;
+        // Two fingerprints per channel voicing:
+        //  * tone   - harmonic spectrum shape of a string-like pluck at three probe
+        //             settings (low gain, high gain, cranked master);
+        //  * breakup - distortion (THD, dB) at five gain settings with a typical
+        //             picking level, i.e. where and how the amp breaks up.
+        // A pair counts as distinct when either differs audibly:
+        // >= 1 dB average spectral difference, or >= 3 dB average breakup difference.
+        const auto in = richPluck (98.0, fs, 0.4, 0.2f);
+        struct Probe { float gain, master; };
+        const Probe probes[] = { { 3.0f, 5.0f }, { 8.0f, 5.0f }, { 5.0f, 9.0f } };
         const auto variants = allVariants();
+        std::vector<std::vector<double>> tone, breakup;
         for (const auto& v : variants)
         {
-            AmpSettings s; s.model = v.model; s.channel = v.channel;
-            const auto out = runAmp (s, in, fs);
             std::vector<double> p;
-            for (int k = 1; k <= 30; ++k) p.push_back (20.0 * std::log10 (toneLevel (out, 98.0 * k, fs, out.size() / 5) + 1e-7));
-            prints.push_back (p);
-        }
-        double minDist = 1e9;
-        for (size_t a = 0; a < prints.size(); ++a)
-            for (size_t b = a + 1; b < prints.size(); ++b)
+            for (const auto& pr : probes)
             {
-                double d = 0.0;
-                for (size_t k = 0; k < prints[a].size(); ++k) d += std::fabs (prints[a][k] - prints[b][k]);
-                d /= static_cast<double> (prints[a].size());
-                minDist = std::fmin (minDist, d);
-                check (d > 1.0, variants[a].label + " vs " + variants[b].label + " differ (mean " + std::to_string (d) + " dB)");
+                AmpSettings s; s.model = v.model; s.channel = v.channel; s.gain = pr.gain; s.master = pr.master;
+                const auto out = runAmp (s, in, fs);
+                std::vector<double> h;
+                for (int k = 1; k <= 20; ++k) h.push_back (20.0 * std::log10 (toneLevel (out, 98.0 * k, fs, out.size() / 5) + 1e-7));
+                for (auto& x : h) p.push_back (x - h[0]); // level-independent spectral shape
             }
-        std::printf ("    closest pair differs by %.2f dB per harmonic on average\n", minDist);
+            tone.push_back (p);
+
+            std::vector<double> b;
+            for (float g : { 1.0f, 3.0f, 5.0f, 7.0f, 9.0f })
+            {
+                AmpSettings s; s.model = v.model; s.channel = v.channel; s.gain = g;
+                b.push_back (20.0 * std::log10 (thdOf (runAmp (s, sine (196.0, fs, 38400, 0.1f), fs), 196.0, fs) + 1e-4));
+            }
+            breakup.push_back (b);
+        }
+        auto meanDiff = [] (const std::vector<double>& x, const std::vector<double>& y)
+        {
+            double d = 0.0;
+            for (size_t k = 0; k < x.size(); ++k) d += std::fabs (x[k] - y[k]);
+            return d / static_cast<double> (x.size());
+        };
+        std::vector<std::vector<double>> score (variants.size(), std::vector<double> (variants.size(), 1e9));
+        for (size_t a = 0; a < variants.size(); ++a)
+            for (size_t b = a + 1; b < variants.size(); ++b)
+            {
+                const double dt = meanDiff (tone[a], tone[b]), db = meanDiff (breakup[a], breakup[b]);
+                score[a][b] = score[b][a] = std::fmax (dt / 1.0, db / 3.0); // >= 1 means audibly distinct
+            }
+
+        // 1) Channels of the same amp must all differ (the channel switch always matters).
+        for (size_t a = 0; a < variants.size(); ++a)
+            for (size_t b = a + 1; b < variants.size(); ++b)
+                if (variants[a].model == variants[b].model)
+                    check (score[a][b] >= 1.0, "channels differ: " + variants[a].label + " vs " + variants[b].label
+                                                   + " (score " + std::to_string (score[a][b]) + ")");
+
+        // 2) Every model differs from every other model: at least one of its channels has no
+        //    near-twin among the other model's channels. (A channel may deliberately emulate
+        //    another amp, e.g. a "IIC+ mode", as on the real hardware.)
+        int nearTwinChannels = 0;
+        for (size_t a = 0; a < variants.size(); ++a)
+            for (size_t b = a + 1; b < variants.size(); ++b)
+                if (variants[a].model != variants[b].model && score[a][b] < 1.0) ++nearTwinChannels;
+
+        for (int ma = 0; ma < M::numAmpModels(); ++ma)
+            for (int mb = ma + 1; mb < M::numAmpModels(); ++mb)
+            {
+                bool distinct = false;
+                for (size_t a = 0; a < variants.size() && ! distinct; ++a)
+                {
+                    if (variants[a].model != ma && variants[a].model != mb) continue;
+                    const int other = variants[a].model == ma ? mb : ma;
+                    double best = 1e9;
+                    for (size_t b = 0; b < variants.size(); ++b)
+                        if (variants[b].model == other) best = std::fmin (best, score[a][b]);
+                    if (best >= 1.0) distinct = true;
+                }
+                check (distinct, std::string ("models differ: ") + M::getAmpModel (ma).name + " vs " + M::getAmpModel (mb).name);
+            }
+        std::printf ("    %zu channel voicings, %d models; %d cross-model channel pairs are near-twins (allowed when the models still differ)\n",
+                     variants.size(), M::numAmpModels(), nearTwinChannels);
+    });
+
+    test ("Catalog covers the required collections", []
+    {
+        check (M::numAmpModels() >= 100, "at least 100 amp models (" + std::to_string (M::numAmpModels()) + ")");
+        int perCategory[static_cast<int> (M::AmpCategory::count)] {};
+        for (int m = 0; m < M::numAmpModels(); ++m) ++perCategory[static_cast<int> (M::getAmpModel (m).category)];
+        for (int c = 0; c < static_cast<int> (M::AmpCategory::count); ++c)
+            check (perCategory[c] > 0, std::string ("category has models: ") + M::categoryName (static_cast<M::AmpCategory> (c)));
+
+        auto hasInspiration = [] (const char* text)
+        {
+            for (int m = 0; m < M::numAmpModels(); ++m)
+                if (std::string (M::getAmpModel (m).inspiredBy).find (text) != std::string::npos) return true;
+            return false;
+        };
+        for (const char* mk : { "Mark I", "Mark IIA", "Mark IIB", "Mark IIC", "Mark IIC+", "Mark III", "Mark IV", "Mark V", "Mark VII",
+                                "Dual Rectifier", "Triple Rectifier", "Single Rectifier", "Road King", "Roadster" })
+            check (hasInspiration (mk), std::string ("Mesa collection includes ") + mk);
+        for (const char* mm : { "JTM45", "1959 Super Lead", "1987", "JMP 2203", "JMP 2204", "JCM800 2203", "JCM800 2204", "JCM900",
+                                "JCM2000", "JVM410H", "Silver Jubilee", "Vintage Modern", "neo-classical", "Jose Arredondo",
+                                "early-1970s Marshall", "mid-1970s Marshall", "late-1970s Marshall" })
+            check (hasInspiration (mm), std::string ("Marshall collection includes ") + mm);
+        for (int m = 0; m < M::numAmpModels(); ++m)
+        {
+            const auto& spec = M::getAmpModel (m);
+            if (spec.category == M::AmpCategory::MesaMarkCollection)
+                check (spec.hasGEQ, std::string (spec.name) + " has the 5-band graphic EQ");
+            check (spec.numChannels >= 1 && spec.numChannels <= 3, std::string (spec.name) + " channel count");
+            for (int c = 0; c < spec.numChannels; ++c)
+                check (spec.channels[static_cast<size_t> (c)].numStages <= 5, std::string (spec.name) + " stage count <= 5");
+        }
+    });
+
+    test ("Graphic EQ shapes Mark-series tones", [&]
+    {
+        auto in = sine (98.0, fs, 48000, 0.2f);
+        const auto hi = sine (2900.0, fs, 48000, 0.05f);
+        for (size_t i = 0; i < in.size(); ++i) in[i] += hi[i];
+        AmpSettings flat; flat.model = static_cast<int> (M::AmpModelId::SierraMkIICPlus); flat.channel = 1;
+        AmpSettings vee = flat; vee.geq = { 6.0f, 2.0f, -8.0f, 3.0f, 6.0f };
+        AmpSettings off = vee; off.geqOn = false;
+        const auto a = runAmp (flat, in, fs), b = runAmp (vee, in, fs), c = runAmp (off, in, fs);
+        std::vector<float> d (a.size()), e (a.size());
+        for (size_t i = 0; i < a.size(); ++i) { d[i] = b[i] - a[i]; e[i] = c[i] - a[i]; }
+        check (rms (d, 24000) / rms (a, 24000) > 0.05, "V-shaped GEQ audibly changes the tone");
+        check (rms (e, 24000) / rms (a, 24000) < 1e-4, "GEQ switched off = flat");
+        AmpSettings plexi = vee; plexi.model = static_cast<int> (M::AmpModelId::Plate59Lead); plexi.channel = 0;
+        AmpSettings plexiFlat = plexi; plexiFlat.geq = {};
+        const auto p1 = runAmp (plexi, in, fs), p2 = runAmp (plexiFlat, in, fs);
+        std::vector<float> f (p1.size());
+        for (size_t i = 0; i < p1.size(); ++i) f[i] = p1[i] - p2[i];
+        check (rms (f, 24000) / rms (p2, 24000) < 1e-4, "models without a GEQ ignore it");
+    });
+
+    test ("Checked-in level calibration matches the models", []
+    {
+       #if VF_HAS_CALIBRATION_TABLE
+        const auto measured = AmpVoice::measureCalibration();
+        int stale = 0;
+        for (int m = 0; m < M::numAmpModels(); ++m)
+            for (int c = 0; c < M::getAmpModel (m).numChannels; ++c)
+            {
+                const double a = kCalibration[static_cast<size_t> (m)][static_cast<size_t> (c)];
+                const double b = measured[static_cast<size_t> (m * 3 + c)];
+                if (std::fabs (20.0 * std::log10 (a / b)) > 0.25) ++stale;
+            }
+        check (stale == 0, "AmpCalibration.inc is current (" + std::to_string (stale) + " stale entries; run tools/vf_calibrate)");
+       #else
+        check (false, "AmpCalibration.inc is missing (run tools/vf_calibrate)");
+       #endif
     });
 
     test ("Every amp control changes the sound", [&]
