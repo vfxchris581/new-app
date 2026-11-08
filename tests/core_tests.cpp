@@ -5,6 +5,8 @@
 #include "vf/dsp/AmpVoice.h"
 #include "vf/dsp/Cabinet.h"
 #include "vf/dsp/NoiseGate.h"
+#include "vf/dsp/Resampler.h"
+#include "vf/dsp/ToneShaper.h"
 #include "vf/dsp/Triode.h"
 #include "vf/dsp/Tuner.h"
 #include "vf/models/AmpModels.h"
@@ -533,6 +535,56 @@ int main()
         cab.setParams (CabModel::V30_4x12, 0.3f, 0.0f); cab.update(); const double close = cab.magnitudeAt (120.0);
         cab.setParams (CabModel::V30_4x12, 0.3f, 1.0f); cab.update(); const double far = cab.magnitudeAt (120.0);
         check (close > far * 1.4, "close mic has more low end (proximity effect)");
+    });
+
+    test ("Streaming resampler round-trips 44.1 <-> 48 kHz accurately", []
+    {
+        for (const auto& rates : { std::pair<double, double> { 44100.0, 48000.0 }, std::pair<double, double> { 96000.0, 48000.0 } })
+        {
+            StreamingResampler up, down;
+            up.prepare (rates.first, rates.second, 256);
+            down.prepare (rates.second, rates.first, up.maxOutputFor (256));
+            SampleFifo fifo; fifo.prepare (4096); fifo.pushZeros (8);
+            const auto in = sine (1000.0, rates.first, 256 * 200, 0.5f);
+            std::vector<float> mid (static_cast<size_t> (up.maxOutputFor (256))), back (static_cast<size_t> (down.maxOutputFor (up.maxOutputFor (256)))), out (in.size());
+            bool underrun = false;
+            for (size_t b = 0; b < 200; ++b)
+            {
+                const int m = up.process (in.data() + b * 256, 256, mid.data(), static_cast<int> (mid.size()));
+                const int k = down.process (mid.data(), m, back.data(), static_cast<int> (back.size()));
+                fifo.push (back.data(), k);
+                if (! fifo.pop (out.data() + b * 256, 256) && b > 2) underrun = true;
+            }
+            const double inLevel = toneLevel (in, 1000.0, rates.first, in.size() / 2);
+            const double outLevel = toneLevel (out, 1000.0, rates.first, out.size() / 2);
+            double distortion = 0.0;
+            for (int k = 2; k <= 5; ++k) distortion += toneLevel (out, 1000.0 * k, rates.first, out.size() / 2);
+            const std::string tag = std::to_string (static_cast<int> (rates.first)) + " Hz host: ";
+            check (! underrun, tag + "no FIFO underruns after priming");
+            check (std::fabs (20.0 * std::log10 (outLevel / inLevel)) < 0.2, tag + "1 kHz level preserved");
+            // Measured ~-60 dB; the single-bin DFT's leakage floor is of the same order,
+            // so the threshold sits a little above it (-50 dB).
+            check (distortion / outLevel < 0.003, tag + "conversion adds < 0.3% (-50 dB) error (" + std::to_string (distortion / outLevel) + ")");
+        }
+    });
+
+    test ("NAM post-EQ is flat at centre and each knob acts", []
+    {
+        ToneShaper t; t.prepare (48000.0);
+        ToneShaperSettings s;
+        t.update (s);
+        bool flat = true;
+        for (double f : { 50.0, 200.0, 700.0, 2500.0, 6000.0 }) if (std::fabs (20.0 * std::log10 (t.magnitudeAt (f))) > 0.05) flat = false;
+        check (flat, "all knobs at 5 = flat");
+        auto at = [&] (ToneShaperSettings x, double f) { t.update (x); return 20.0 * std::log10 (t.magnitudeAt (f)); };
+        ToneShaperSettings x;
+        x = s; x.bass = 10;      check (at (x, 60.0) > 6.0, "bass raises lows");
+        x = s; x.middle = 0;     check (at (x, 700.0) < -6.0, "middle cuts mids");
+        x = s; x.treble = 10;    check (at (x, 6000.0) > 6.0, "treble raises highs");
+        x = s; x.presence = 10;  check (at (x, 4500.0) > 5.0, "presence boosts upper mids");
+        x = s; x.resonance = 10; check (at (x, 95.0) > 4.0, "resonance boosts low thump");
+        x = s; x.bright = true;  check (at (x, 6000.0) > 3.0, "bright lifts highs");
+        x = s; x.deep = true;    check (at (x, 60.0) > 3.0, "deep lifts lows");
     });
 
     test ("Noise gate closes on hiss and opens on a note", []
