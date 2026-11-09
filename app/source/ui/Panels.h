@@ -29,7 +29,7 @@ private:
 class AmpHeadPanel : public juce::Component
 {
 public:
-    AmpHeadPanel (APVTS& state, ViridianForgeProcessor& processor);
+    AmpHeadPanel (APVTS& state, ViridianForgeProcessor& processor, int ampIndex = 0);
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -40,6 +40,7 @@ private:
     void updateMode();
 
     APVTS& state;
+    int index = 0;
     ChannelSelector channel, source;
     LabeledKnob gain, bass, middle, treble, presence, resonance, master;
     LedSwitch bright, deep, boost, geqOn;
@@ -70,7 +71,7 @@ private:
 class CabPanel : public juce::Component
 {
 public:
-    CabPanel (APVTS& state, ViridianForgeProcessor& processor);
+    CabPanel (APVTS& state, ViridianForgeProcessor& processor, int cabIndex = 0);
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -78,6 +79,7 @@ private:
     juce::Rectangle<float> cabArea() const;
     void updateMode();
 
+    int index = 0;
     LedSwitch cabOn, phaseB, stereo;
     ChannelSelector source;
     ChoiceBox cabModel, micType;
@@ -85,25 +87,6 @@ private:
     FileSlot irA { "IR A", "IRs", "*.wav;*.aif;*.aiff" }, irB { "IR B", "IRs", "*.wav;*.aif;*.aiff" };
     std::unique_ptr<juce::ParameterAttachment> modelWatch, sourceWatch;
     int currentCab = 0, mode = 0;
-};
-
-/** Signal chain overview. Blocks that exist are live (click toggles bypass);
-    the pedalboard slots are clearly marked as arriving in Phase 4. */
-class SignalChainStrip : public juce::Component, public juce::SettableTooltipClient, private juce::AudioProcessorValueTreeState::Listener
-{
-public:
-    explicit SignalChainStrip (APVTS& state);
-    ~SignalChainStrip() override;
-    void paint (juce::Graphics&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-
-private:
-    void parameterChanged (const juce::String&, float) override { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<SignalChainStrip> (this)] { if (sp) sp->repaint(); }); }
-
-    struct Block { juce::String name; juce::String paramId; bool live; };
-    juce::Array<Block> blocks;
-    juce::Array<juce::Rectangle<float>> blockBounds;
-    APVTS& state;
 };
 
 /** Splash shown when the editor first opens; click or wait to dismiss. */

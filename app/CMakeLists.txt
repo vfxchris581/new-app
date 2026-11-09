@@ -40,7 +40,8 @@ target_sources(ViridianForge PRIVATE
     source/engine/CabBlock.cpp
     source/ui/ViridianLookAndFeel.cpp
     source/ui/Widgets.cpp
-    source/ui/Panels.cpp)
+    source/ui/Panels.cpp
+    source/ui/Pedalboard.cpp)
 
 target_include_directories(ViridianForge PRIVATE source)
 

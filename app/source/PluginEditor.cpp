@@ -19,14 +19,20 @@ ViridianForgeEditor::ViridianForgeEditor (ViridianForgeProcessor& p)
     : AudioProcessorEditor (&p),
       processor (p),
       ioPanel (p.getState()),
-      ampHead (p.getState(), p),
-      cabPanel (p.getState(), p),
-      chain (p.getState())
+      ampHead1 (p.getState(), p, 0), ampHead2 (p.getState(), p, 1),
+      cabPanel1 (p.getState(), p, 0), cabPanel2 (p.getState(), p, 1),
+      effectEditor (p),
+      pedalboard (p)
 {
     setLookAndFeel (&laf);
 
-    for (auto* c : std::initializer_list<Component*> { &topBar, &ioPanel, &ampHead, &cabPanel, &chain })
+    for (auto* c : std::initializer_list<Component*> { &topBar, &ioPanel, &pedalboard })
         addAndMakeVisible (c);
+    for (auto* c : std::initializer_list<Component*> { &ampHead1, &ampHead2, &cabPanel1, &cabPanel2, &effectEditor })
+        addChildComponent (c);
+    pedalboard.onSelectionChanged = [this] (int key) { showBlock (key); };
+    showBlock (vf::graph::kAmp1);
+    cabPanel1.setVisible (true);
     addChildComponent (about);
 
     // Theme is stored in the session state so it survives reloads.
@@ -87,6 +93,33 @@ ViridianForgeEditor::~ViridianForgeEditor()
     setLookAndFeel (nullptr);
 }
 
+void ViridianForgeEditor::showBlock (int key)
+{
+    using namespace vf::graph;
+    // Main area: the selected amp or effect. Right panel: the selected cab (or the
+    // last one shown when something else is selected).
+    if (isFxKey (key))
+    {
+        effectEditor.setSlot (key);
+        effectEditor.setVisible (true);
+        ampHead1.setVisible (false);
+        ampHead2.setVisible (false);
+    }
+    else if (isAmpKey (key))
+    {
+        effectEditor.setVisible (false);
+        ampHead1.setVisible (key == kAmp1);
+        ampHead2.setVisible (key == kAmp2);
+    }
+    else if (isCabKey (key))
+    {
+        cabPanel1.setVisible (key == kCab1);
+        cabPanel2.setVisible (key == kCab2);
+        if (! ampHead1.isVisible() && ! ampHead2.isVisible() && ! effectEditor.isVisible())
+            ampHead1.setVisible (true);
+    }
+}
+
 bool ViridianForgeEditor::isStandalone() const
 {
     return processor.wrapperType == AudioProcessor::wrapperType_Standalone && standaloneHolder() != nullptr;
@@ -127,14 +160,18 @@ void ViridianForgeEditor::resized()
     topBar.setBounds (r.removeFromTop (px (64)));
     r.reduce (px (12), px (12));
 
-    chain.setBounds (r.removeFromBottom (px (120)));
+    pedalboard.setBounds (r.removeFromBottom (px (150)));
     r.removeFromBottom (px (12));
 
     ioPanel.setBounds (r.removeFromLeft (px (130)));
     r.removeFromLeft (px (12));
-    cabPanel.setBounds (r.removeFromRight (px (260)));
+    const auto cabArea = r.removeFromRight (px (260));
+    cabPanel1.setBounds (cabArea);
+    cabPanel2.setBounds (cabArea);
     r.removeFromRight (px (12));
-    ampHead.setBounds (r);
+    ampHead1.setBounds (r);
+    ampHead2.setBounds (r);
+    effectEditor.setBounds (r);
 
     about.setBounds (getLocalBounds());
     if (splash != nullptr)

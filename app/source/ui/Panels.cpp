@@ -89,23 +89,23 @@ void TopBar::resized()
 }
 
 //==============================================================================
-AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor)
-    : state (s),
-      channel (s, vf::ParamID::channel),
-      source (s, vf::ParamID::ampSource),
-      gain (s, vf::ParamID::gain, "Gain"),
-      bass (s, vf::ParamID::bass, "Bass"),
-      middle (s, vf::ParamID::middle, "Middle"),
-      treble (s, vf::ParamID::treble, "Treble"),
-      presence (s, vf::ParamID::presence, "Presence"),
-      resonance (s, vf::ParamID::resonance, "Resonance"),
-      master (s, vf::ParamID::master, "Master"),
-      bright (s, vf::ParamID::bright, "Bright"),
-      deep (s, vf::ParamID::deep, "Deep"),
-      boost (s, vf::ParamID::boost, "Boost"),
-      geqOn (s, vf::ParamID::geqOn, "GEQ"),
-      model (s, vf::ParamID::ampModel),
-      tubeSwap (s, vf::ParamID::tubeSwap, "Power tubes")
+AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor, int ampIndex)
+    : state (s), index (ampIndex),
+      channel (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::channel),
+      source (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::ampSource),
+      gain (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::gain, "Gain"),
+      bass (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::bass, "Bass"),
+      middle (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::middle, "Middle"),
+      treble (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::treble, "Treble"),
+      presence (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::presence, "Presence"),
+      resonance (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::resonance, "Resonance"),
+      master (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::master, "Master"),
+      bright (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::bright, "Bright"),
+      deep (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::deep, "Deep"),
+      boost (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::boost, "Boost"),
+      geqOn (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::geqOn, "GEQ"),
+      model (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::ampModel),
+      tubeSwap (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::tubeSwap, "Power tubes")
 {
     for (auto* c : std::initializer_list<Component*> { &channel, &source, &gain, &bass, &middle, &treble, &presence, &resonance, &master,
                                                        &bright, &deep, &boost, &model, &tubeSwap })
@@ -115,15 +115,15 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor)
 
     const char* geqLabels[] = { "80", "240", "750", "2.2k", "6.6k" };
     for (size_t b = 0; b < 5; ++b)
-        addChildComponent (geq.add (new LabeledFader (s, vf::ParamID::geqBands[b], geqLabels[b])));
+        addChildComponent (geq.add (new LabeledFader (s, ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::geqBands[b], geqLabels[b])));
 
-    namSlot.getStatus = [&processor]
+    namSlot.getStatus = [&processor, ampIndex]
     {
-        const auto st = processor.getNamStatus();
+        const auto st = processor.getNamStatus (ampIndex);
         return FileSlot::Status { static_cast<int> (st.state), st.description, st.error };
     };
-    namSlot.onLoad = [&processor] (const File& f) { processor.loadNamModel (f); };
-    namSlot.onClear = [&processor] { processor.unloadNamModel(); };
+    namSlot.onLoad = [&processor, ampIndex] (const File& f) { processor.loadNamModel (f, ampIndex); };
+    namSlot.onClear = [&processor, ampIndex] { processor.unloadNamModel (ampIndex); };
     namSlot.getLibraryFolder = [] { return ViridianForgeProcessor::getLibraryFolder ("NAM"); };
     namSlot.importFile = [] (const File& f) { return ViridianForgeProcessor::importIntoLibrary (f, "NAM"); };
 
@@ -133,8 +133,8 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor)
         source.setTooltip ("This build was compiled without NAM support");
     }
 
-    model.onModelChanged = [this] (int index) { modelChanged (index); };
-    sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::ampSource), [this] (float v)
+    model.onModelChanged = [this] (int m) { modelChanged (m); };
+    sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::ampSource), [this] (float v)
     {
         namMode = v > 0.5f;
         updateMode();
@@ -143,9 +143,9 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor)
     modelChanged (model.getModel());
 }
 
-void AmpHeadPanel::modelChanged (int index)
+void AmpHeadPanel::modelChanged (int modelIndex)
 {
-    const auto& spec = vf::models::getAmpModel (index);
+    const auto& spec = vf::models::getAmpModel (modelIndex);
     StringArray names;
     for (int i = 0; i < spec.numChannels; ++i)
         names.add (spec.channels[static_cast<size_t> (i)].name);
@@ -274,6 +274,13 @@ void AmpHeadPanel::paint (Graphics& g)
     g.setColour (t.textDim);
     g.setFont (ViridianLookAndFeel::labelFont (10.0f));
     g.drawText ("CHANNEL", channel.getBounds().toFloat().translated (26, -14).withHeight (12), Justification::centredLeft);
+
+    // Which amp of the chain this head is editing
+    auto tag = Rectangle<float> (18.0f, 12.0f, 64.0f, 20.0f);
+    g.setColour (t.accent.withAlpha (0.9f));
+    g.drawRoundedRectangle (tag, 4.0f, 1.2f);
+    g.setFont (ViridianLookAndFeel::labelFont (11.0f));
+    g.drawText (index == 0 ? "AMP 1" : "AMP 2", tag, Justification::centred);
 }
 
 void AmpHeadPanel::resized()
@@ -342,19 +349,20 @@ void IOPanel::resized()
 }
 
 //==============================================================================
-CabPanel::CabPanel (APVTS& s, ViridianForgeProcessor& processor)
-    : cabOn (s, vf::ParamID::cabEnabled, "Cab"),
-      phaseB (s, vf::ParamID::irPhaseB, "Phase B"),
-      stereo (s, vf::ParamID::cabStereo, "Stereo"),
-      source (s, vf::ParamID::cabSource),
-      cabModel (s, vf::ParamID::cabModel, "Cabinet"),
-      micType (s, vf::ParamID::micType, "Microphone"),
-      micPosition (s, vf::ParamID::micPosition, "Mic Pos"),
-      micDistance (s, vf::ParamID::micDistance, "Distance"),
-      blend (s, vf::ParamID::irBlend, "A / B"),
-      lowCut (s, vf::ParamID::cabLowCut, "Low Cut"),
-      highCut (s, vf::ParamID::cabHighCut, "High Cut"),
-      room (s, vf::ParamID::room, "Room")
+CabPanel::CabPanel (APVTS& s, ViridianForgeProcessor& processor, int cabIndex)
+    : index (cabIndex),
+      cabOn (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabEnabled, "Cab"),
+      phaseB (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::irPhaseB, "Phase B"),
+      stereo (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabStereo, "Stereo"),
+      source (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabSource),
+      cabModel (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabModel, "Cabinet"),
+      micType (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micType, "Microphone"),
+      micPosition (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micPosition, "Mic Pos"),
+      micDistance (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micDistance, "Distance"),
+      blend (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::irBlend, "A / B"),
+      lowCut (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabLowCut, "Low Cut"),
+      highCut (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabHighCut, "High Cut"),
+      room (s, ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::room, "Room")
 {
     for (auto* c : std::initializer_list<Component*> { &cabOn, &source, &lowCut, &highCut, &room, &stereo })
         addAndMakeVisible (c);
@@ -368,24 +376,24 @@ CabPanel::CabPanel (APVTS& s, ViridianForgeProcessor& processor)
     for (int slot = 0; slot < 2; ++slot)
     {
         auto& fs = slot == 0 ? irA : irB;
-        fs.getStatus = [&processor, slot]
+        fs.getStatus = [&processor, slot, cabIndex]
         {
-            const auto st = processor.getIrStatus (slot);
+            const auto st = processor.getIrStatus (slot, cabIndex);
             return FileSlot::Status { static_cast<int> (st.state), st.description, st.error };
         };
-        fs.onLoad = [&processor, slot] (const File& f) { processor.loadImpulseResponse (slot, f); };
-        fs.onClear = [&processor, slot] { processor.clearImpulseResponse (slot); };
+        fs.onLoad = [&processor, slot, cabIndex] (const File& f) { processor.loadImpulseResponse (slot, f, cabIndex); };
+        fs.onClear = [&processor, slot, cabIndex] { processor.clearImpulseResponse (slot, cabIndex); };
         fs.getLibraryFolder = [] { return ViridianForgeProcessor::getLibraryFolder ("IRs"); };
         fs.importFile = [] (const File& f) { return ViridianForgeProcessor::importIntoLibrary (f, "IRs"); };
     }
 
-    modelWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::cabModel), [this] (float v)
+    modelWatch = std::make_unique<ParameterAttachment> (*s.getParameter (ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabModel), [this] (float v)
     {
         currentCab = roundToInt (v);
         repaint();
     });
     modelWatch->sendInitialUpdate();
-    sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (vf::ParamID::cabSource), [this] (float v)
+    sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::cabSource), [this] (float v)
     {
         mode = roundToInt (v);
         updateMode();
@@ -417,7 +425,7 @@ Rectangle<float> CabPanel::cabArea() const
 void CabPanel::paint (Graphics& g)
 {
     const auto t = themeOf (*this);
-    drawPanelBackground (g, getLocalBounds().toFloat(), t, "CABINET");
+    drawPanelBackground (g, getLocalBounds().toFloat(), t, index == 0 ? "CABINET 1" : "CABINET 2");
 
     if (mode == 0)
     {
@@ -500,102 +508,6 @@ void CabPanel::resized()
             blend.setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (4, 0));
             phaseB.setBounds (row.withSizeKeepingCentre (jmin (80, row.getWidth()), jmin (52, row.getHeight())));
         }
-    }
-}
-
-//==============================================================================
-SignalChainStrip::SignalChainStrip (APVTS& s) : state (s)
-{
-    blocks.add ({ "IN", {}, true });
-    blocks.add ({ "GATE", vf::ParamID::gateEnabled, true });
-    blocks.add ({ "FX", {}, false });
-    blocks.add ({ "AMP", {}, true });
-    blocks.add ({ "CAB", vf::ParamID::cabEnabled, true });
-    blocks.add ({ "FX", {}, false });
-    blocks.add ({ "FX", {}, false });
-    blocks.add ({ "OUT", {}, true });
-    state.addParameterListener (vf::ParamID::gateEnabled, this);
-    state.addParameterListener (vf::ParamID::cabEnabled, this);
-    setTooltip ("Click GATE or CAB to bypass. Drag-and-drop effects, parallel paths and 100+ effects arrive in Phase 4.");
-}
-
-SignalChainStrip::~SignalChainStrip()
-{
-    state.removeParameterListener (vf::ParamID::gateEnabled, this);
-    state.removeParameterListener (vf::ParamID::cabEnabled, this);
-}
-
-void SignalChainStrip::paint (Graphics& g)
-{
-    const auto t = themeOf (*this);
-    auto r = getLocalBounds().toFloat();
-    drawPanelBackground (g, r, t, "SIGNAL CHAIN");
-    r = r.reduced (16.0f).withTrimmedTop (14.0f);
-
-    const int n = blocks.size();
-    const float gap = r.getWidth() * 0.025f;
-    const float bw = (r.getWidth() - gap * (float) (n - 1)) / (float) n;
-    const float bh = jmin (r.getHeight(), bw * 0.7f);
-    const float y = r.getCentreY() - bh / 2;
-
-    g.setColour (t.textDim);
-    g.drawLine (r.getX(), r.getCentreY(), r.getRight(), r.getCentreY(), 2.0f);
-
-    blockBounds.clearQuick();
-    for (int i = 0; i < n; ++i)
-    {
-        const auto& b = blocks.getReference (i);
-        Rectangle<float> box (r.getX() + (float) i * (bw + gap), y, bw, bh);
-        blockBounds.add (box);
-
-        bool enabled = true;
-        if (b.paramId.isNotEmpty())
-            if (auto* v = state.getRawParameterValue (b.paramId)) enabled = v->load() > 0.5f;
-
-        if (b.live)
-        {
-            g.setGradientFill (ColourGradient ((enabled ? t.accentDeep : t.panel).brighter (0.1f), box.getX(), box.getY(),
-                                               (enabled ? t.accentDeep : t.panel).darker (0.4f), box.getX(), box.getBottom(), false));
-            g.fillRoundedRectangle (box, 6.0f);
-            g.setColour (enabled ? t.accent : t.panelEdge);
-            g.drawRoundedRectangle (box, 6.0f, 1.5f);
-            g.setColour (enabled ? Colours::white : t.textDim);
-        }
-        else
-        {
-            g.setColour (t.panel.darker (0.2f));
-            g.fillRoundedRectangle (box, 6.0f);
-            Path dashed;
-            dashed.addRoundedRectangle (box, 6.0f);
-            const float dashes[] = { 4.0f, 4.0f };
-            PathStrokeType (1.0f).createDashedStroke (dashed, dashed, dashes, 2);
-            g.setColour (t.panelEdge);
-            g.fillPath (dashed);
-            g.setColour (t.textDim.withAlpha (0.6f));
-        }
-
-        g.setFont (ViridianLookAndFeel::labelFont (jmin (14.0f, bh * 0.28f)));
-        g.drawText (b.live ? b.name : "+", box.withTrimmedBottom (b.live ? 0.0f : bh * 0.3f), Justification::centred);
-        if (! b.live)
-        {
-            g.setFont (ViridianLookAndFeel::labelFont (9.0f, false));
-            g.drawText ("PHASE 4", box.withTrimmedTop (bh * 0.6f), Justification::centred);
-        }
-    }
-}
-
-void SignalChainStrip::mouseUp (const MouseEvent& e)
-{
-    for (int i = 0; i < blockBounds.size() && i < blocks.size(); ++i)
-    {
-        const auto& b = blocks.getReference (i);
-        if (b.paramId.isNotEmpty() && blockBounds[i].contains (e.position))
-            if (auto* p = state.getParameter (b.paramId))
-            {
-                p->beginChangeGesture();
-                p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f);
-                p->endChangeGesture();
-            }
     }
 }
 

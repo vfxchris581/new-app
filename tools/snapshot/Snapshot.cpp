@@ -5,10 +5,11 @@
 // renders the editor to a PNG. Exits non-zero if audio is silent or not finite.
 //
 //   vf_snapshot <scenario> <out.png> [nam-file] [ir-file]
-//   scenarios: default | mark | nam | ir | light
+//   scenarios: default | mark | nam | ir | light | chain | fx
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 static void setParam (juce::AudioProcessorValueTreeState& s, const char* id, float value)
 {
@@ -16,11 +17,13 @@ static void setParam (juce::AudioProcessorValueTreeState& s, const char* id, flo
         p->setValueNotifyingHost (p->convertTo0to1 (value));
 }
 
+static double gSideRatio = 0.0; // side / mid energy of the last run (stereo check)
+
 static bool runAudio (ViridianForgeProcessor& proc, int blocks, double& rmsOut)
 {
     juce::AudioBuffer<float> buffer (2, 512);
     juce::MidiBuffer midi;
-    double sum = 0.0; long n = 0;
+    double sum = 0.0, mid = 0.0, side = 0.0; long n = 0;
     bool finite = true;
     for (int b = 0; b < blocks; ++b)
     {
@@ -38,8 +41,15 @@ static bool runAudio (ViridianForgeProcessor& proc, int blocks, double& rmsOut)
                 if (! std::isfinite (y)) finite = false;
                 if (b > blocks / 2) { sum += static_cast<double> (y) * y; ++n; }
             }
+        if (b > blocks / 2)
+            for (int i = 0; i < 512; ++i)
+            {
+                const double l = buffer.getSample (0, i), r = buffer.getSample (1, i);
+                mid += (l + r) * (l + r); side += (l - r) * (l - r);
+            }
     }
     rmsOut = n > 0 ? std::sqrt (sum / static_cast<double> (n)) : 0.0;
+    gSideRatio = mid > 0.0 ? side / mid : 0.0;
     return finite;
 }
 
@@ -61,6 +71,7 @@ int main (int argc, char* argv[])
     auto& st = proc.getState();
     proc.setPlayConfigDetails (2, 2, 48000.0, 512);
     proc.prepareToPlay (48000.0, 512);
+    int selectKey = -1;
 
     if (scenario == "mark")
     {
@@ -89,6 +100,42 @@ int main (int argc, char* argv[])
         setParam (st, vf::ParamID::ampModel, static_cast<float> (vf::models::AmpModelId::Canyon6V6));
     }
 
+    else if (scenario == "chain" || scenario == "fx")
+    {
+        using namespace vf::graph;
+        using S = Section;
+        auto type = [] (const char* id) { return vf::fx::findEffectType (id); };
+        proc.addEffect (type ("dyn.noise-gate"), S::Pre, 0);
+        const int drive = proc.addEffect (type ("drive.green-screamer"), S::Pre, 1);
+        proc.addEffect (type ("filter.wah"), S::Pre, 0);
+        proc.setSplit (true);
+        proc.moveBlock (kAmp1, S::LaneA, 0);
+        proc.moveBlock (kCab1, S::LaneA, 1);
+        proc.moveBlock (kAmp2, S::LaneB, 0);
+        proc.moveBlock (kCab2, S::LaneB, 1);
+        proc.addEffect (type ("mod.chorus"), S::LaneB, 2);
+        proc.addEffect (type ("delay.tape-delay"), S::Post, 0);
+        proc.addEffect (type ("reverb.hall"), S::Post, 1);
+        setParam (st, (juce::String (vf::amp2Prefix) + vf::ParamID::ampModel).toRawUTF8(), static_cast<float> (vf::models::AmpModelId::SierraMkIICPlus));
+        setParam (st, (juce::String (vf::cab2Prefix) + vf::ParamID::cabModel).toRawUTF8(), static_cast<float> (vf::dsp::CabModel::V30_4x12));
+        setParam (st, vf::ParamID::laneAPan, -80.0f);
+        setParam (st, vf::ParamID::laneBPan, 80.0f);
+        // the wah is parked mid-sweep; turn the gate off to keep the test tone audible
+        setParam (st, vf::ParamID::gateEnabled, 0.0f);
+        proc.setStateInformation (nullptr, 0); // no-op on bad data: must not disturb the chain
+
+        // Session round trip through a fresh processor
+        juce::MemoryBlock saved;
+        proc.getStateInformation (saved);
+        std::unique_ptr<juce::AudioProcessor> other (createPluginFilter());
+        auto& p2 = dynamic_cast<ViridianForgeProcessor&> (*other);
+        p2.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+        const bool same = p2.getChain().serialise() == proc.getChain().serialise() && p2.getSlotType (drive) == proc.getSlotType (drive);
+        std::printf ("chain: %s | round trip %s | latency %d\n", proc.getChain().serialise().c_str(), same ? "ok" : "MISMATCH", proc.getLatencySamples());
+        if (! same) return 3;
+        if (scenario == "fx") selectKey = drive;
+    }
+
     // Let background loads finish, then run audio so swaps happen and meters move.
     for (int i = 0; i < 100; ++i)
     {
@@ -104,6 +151,8 @@ int main (int argc, char* argv[])
 
     std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditorIfNeeded());
     editor->setSize (1280, 800);
+    if (selectKey >= 0)
+        if (auto* ed = dynamic_cast<ViridianForgeEditor*> (editor.get())) ed->selectBlock (selectKey);
     for (int i = 0; i < 15; ++i) // let editor timers update meters, tuner and file slots
     {
         runAudio (proc, 4, rms);
@@ -117,6 +166,7 @@ int main (int argc, char* argv[])
     const bool saved = os.openedOk() && png.writeImageToStream (image, os);
 
     const auto ns = proc.getNamStatus();
+    std::printf ("stereo side/mid %.3f\n", gSideRatio);
     std::printf ("scenario %s: rms %.4f finite %d saved %d | NAM: state %d %s %s | IR A: %s\n", scenario.toRawUTF8(), rms, finite ? 1 : 0, saved ? 1 : 0,
                  static_cast<int> (ns.state), ns.description.toRawUTF8(), ns.error.toRawUTF8(), proc.getIrStatus (0).description.toRawUTF8());
     proc.editorBeingDeleted (editor.get());

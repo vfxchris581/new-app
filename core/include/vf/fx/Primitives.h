@@ -5,6 +5,7 @@
 #include "../dsp/Smoother.h"
 #include <array>
 #include <cmath>
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 

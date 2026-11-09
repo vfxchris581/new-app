@@ -5,12 +5,12 @@
 **Guitar amp and effects modeling — standalone app and VST3/AU plugin for Windows, macOS and Linux.**
 By Viridian Audio Works.
 
-![Viridian Forge: Mark IIC+-style model with its graphic EQ](docs/images/ui-mark-geq.png)
+![Viridian Forge: pedalboard with two amps and two cabs in parallel lanes](docs/images/ui-pedalboard.png)
 
-> **Status: Phase 3 of 7.** The app, plugin, interface, circuit-based amp engine with
-> **104 amp models**, Neural Amp Modeler support, impulse-response loading and the cabinet
-> section are built. The effects library and drag-and-drop pedalboard (Phase 4) and the preset
-> system (Phase 5) are not implemented yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: Phase 4 of 7.** The app, plugin, interface, circuit-based amp engine with
+> **104 amp models**, Neural Amp Modeler support, impulse-response loading, the cabinet section,
+> **107 effects** and the **drag-and-drop signal chain** with parallel lanes are built. The preset
+> system (Phase 5) is not implemented yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## What works today
 
@@ -39,13 +39,27 @@ By Viridian Audio Works.
   phase invert and true stereo (A left / B right); plus low cut, high cut and a stereo room.
 
   ![IR mode](docs/images/ui-ir.png)
+- **107 effects** in 9 categories, all original DSP: 26 drives/fuzzes/boosts (2x oversampled),
+  19 modulation (chorus, flangers, phasers, Uni-Vibe, tremolos, rotary, ring mod...), 17 delays
+  (analog, tape, multi-head, ping-pong, reverse, shimmer, granular, looper...), 12 reverbs
+  (FDN halls/rooms/plates, spring, gated, reverse, shimmer...), 9 dynamics, 10 EQ/filters
+  (wah, auto-wah, envelope, talk box, step filter...), 4 pitch, 7 creative (synth, glitch, freeze,
+  bit crusher...) and 3 utilities. Full list with controls: [docs/EFFECTS_CATALOG.md](docs/EFFECTS_CATALOG.md).
+
+  ![Effect editor](docs/images/ui-effect.png)
+- **Signal chain / pedalboard:** up to 24 effects plus **Amp 1, Amp 2, Cab 1 and Cab 2** in any
+  order. Drag blocks to reorder, **+** to add, double-click to bypass, right-click to duplicate,
+  change type, move or remove. **SPLIT** creates two parallel stereo lanes (Y split or
+  left/right split) that merge with per-lane level and pan, so you can run two amps and/or two
+  cabs in parallel. Parallel lanes are latency-aligned, and editing the chain while playing is
+  click-free. Every block's controls are host-automatable.
 - Power-tube swap on any model, gain, bass, middle, treble, presence, resonance, master, bright,
   deep, boost, noise gate.
 - Chromatic tuner, input/output meters with clip LEDs, CPU and latency readouts.
 - Resizable UI with dark and light themes, splash and About screens.
 - Full session save/restore (including loaded NAM and IR files) and automation of every parameter.
-- Automated tests: 8,629 DSP checks (every model, cabinet, mic, resampler) and 37 NAM checks,
-  run on all three OSes by CI.
+- Automated tests: 8,629 amp/cab DSP checks, 15,665 effect and signal-graph checks and 37 NAM
+  checks, run on all three OSes by CI.
 
 ## Build
 
@@ -123,14 +137,14 @@ Building only the DSP core and tests (no JUCE download): `cmake -S . -B build -D
 
 | Path | Contents |
 |---|---|
-| `core/` | JUCE-free DSP core (amp engine, 104-model registry, cab/mic/room, resampler, tuner, parameters) |
+| `core/` | JUCE-free DSP core (amp engine, 104-model registry, cab/mic/room, 107 effects, signal-graph engine, resampler, tuner, parameters) |
 | `nam/` | Neural Amp Modeler host (C++20, wraps NeuralAmpModelerCore) |
 | `app/` | JUCE processor, editor and UI components |
-| `tests/` | Core and NAM unit tests (CTest) |
-| `tools/` | Level-calibration generator; UI snapshot / smoke-test tool |
+| `tests/` | Core, effects/graph and NAM unit tests (CTest) |
+| `tools/` | Level-calibration generator, effects-catalog generator, half-band filter designer, UI snapshot / smoke-test tool |
 | `resources/branding/` | Icon (SVG + PNG), wordmark, reference guitar photo |
 | `scripts/make_branding.py` | Regenerates the icon and wordmark |
-| `docs/` | Architecture & roadmap, amp catalog, testing checklist |
+| `docs/` | Architecture & roadmap, amp and effects catalogs, testing checklist |
 
 ## Licensing note
 

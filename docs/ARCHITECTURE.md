@@ -67,10 +67,11 @@ Key decisions:
 - **Real-time rules** enforced in `processBlock`: no allocation, no file I/O,
   no locks. Data to the UI goes through atomics and a lock-free SPSC FIFO;
   heavy analysis (tuner YIN) runs on the message thread.
-- **Phase 4 graph engine:** the signal chain becomes an immutable graph
-  description built on a background thread and swapped into the audio thread
-  with an atomic pointer exchange. Old graphs are released off the audio
-  thread. This gives drag-and-drop, parallel paths and stereo without locks.
+- **Graph engine (Phase 4):** the signal chain is an immutable plan built on
+  the message thread and swapped into the audio thread with an atomic pointer
+  exchange. Retired plans go back through a lock-free queue and are freed off
+  the audio thread. This gives drag-and-drop, parallel paths and stereo without
+  locks (details in §7a).
 
 ## 3. Amplifier modeling engine
 
@@ -197,13 +198,58 @@ light themes saved with the session, and:
   tone-stack voicing and power-tube selectors; seven metal knobs.
 - **Input/Output panel:** input trim, gate on/off and threshold, output level.
 - **Cabinet panel:** cab on/off and a 4x12 graphic (IR/mic controls in Phase 3).
-- **Signal chain strip:** live IN → GATE → AMP → CAB → OUT blocks (click to
-  bypass); empty dashed slots labelled *Phase 4* for the pedalboard.
+- **Pedalboard (Phase 4):** see §7a.
 - **Splash screen** (first open) and **About** screen with credits and notices.
 
-**Planned layout additions:** amp browser by category (Phase 3), drag-and-drop
-pedalboard with parallel lanes (Phase 4), preset browser with tags/favourites
-(Phase 5).
+**Planned layout additions:** preset browser with tags/favourites (Phase 5).
+
+## 7a. Effects and signal chain (Phase 4)
+
+**Effects** (`core/include/vf/fx/`, JUCE-free). Every effect derives from
+`vf::fx::Effect`: stereo in-place `process()`, `prepare()`/`reset()`, up to 8
+parameters described by `ParamInfo` (real units, range, log taper, choice
+labels). Shared building blocks live in `Primitives.h`: cubic-interpolated
+delay lines, LFOs, TPT state-variable filters, envelope followers, a 2x
+half-band polyphase IIR oversampler (designed by `tools/halfband_design.py`,
+>100 dB alias rejection) used by every drive, a granular pitch shifter whose
+grains are aligned by waveform correlation (no comb "warble"), and an 8-line
+Householder FDN reverb core with a per-line high-frequency decay shelf. Most
+families are one engine plus voicing tables (26 drive voicings, 8 modulated
+delay voicings, 11 delay voicings, 8 reverb voicings), so each effect is a
+distinct, tested sound rather than a preset. `Registry.h` lists all 107 types
+with stable IDs (`drive.green-screamer`, `reverb.hall`...) used in sessions.
+
+**Chain model** (`core/include/vf/graph/Chain.h`): PRE → [LANE A ∥ LANE B] →
+POST, each an ordered list of block keys: 24 effect slots, Amp 1/2, Cab 1/2.
+Pure data, serialised as text in the session.
+
+**Engine** (`core/include/vf/graph/Engine.h`): the message thread builds a
+`Plan` (block pointers per section, lane latencies, owned references to the
+instances) and publishes it. At a block boundary the audio thread fades out
+(4 ms), swaps plans and fades in, so edits never click. Per-block bypass is a
+10 ms crossfade; a fully bypassed block is skipped (no CPU) and reset when
+re-engaged. Split modes: Y (both lanes get the stereo signal) or left/right.
+Lanes merge with smoothed level and equal-power pan, and the faster lane is
+delayed so parallel amps stay phase-aligned. No allocation, locks or frees on
+the audio thread (verified in tests with an allocation-counting `operator new`,
+and under ThreadSanitizer while plans churn).
+
+**Host parameters.** Each effect slot has fixed parameters `fxN_on` and
+`fxN_p1..p8` (0..1). Their display text follows the effect in the slot ("Drive:
+6.2", "Time: 380 ms"), so automation, undo and presets keep working when blocks
+move. Amp 2 and Cab 2 use the amp/cab parameter IDs prefixed with `amp2_` /
+`cab2_`. Amp 1 and Cab 1 keep their original IDs, so Phase 1–3 sessions load
+unchanged as "Amp 1 → Cab 1".
+
+**UI** (`app/source/ui/Pedalboard.*`): blocks colour-coded by category. Click
+a block to edit it, double-click or click its LED to bypass, and drag it to move it
+(including between lanes). **+** opens the add menu (categories, then effects, plus
+Amp/Cab blocks), right-click gives duplicate / change effect / move / remove,
+Delete removes the selected block and Space bypasses it. The selected effect
+opens as a stompbox editor in the main area (real-unit knobs and selectors,
+footswitch, change/duplicate/remove). Amps open the amp head and cabs the cab
+panel. The lane mixer (split mode, A/B level and pan) appears when the chain
+is split.
 
 ## 8. Project directory structure
 
@@ -215,13 +261,17 @@ new-app/
 │   └── include/vf/
 │       ├── Brand.h             names, version, palette
 │       ├── Parameters.h        parameter IDs, ranges, defaults (single source of truth)
-│       └── dsp/                Smoother, Biquad, ToneStack, TubeStage, NoiseGate, Tuner, AmpVoice
+│       ├── dsp/                Smoother, Biquad, ToneStack, TubeStage, NoiseGate, Tuner, AmpVoice, Cabinet...
+│       ├── models/             104 amp models + level calibration
+│       ├── fx/                 effect framework, primitives, 107 effects, registry
+│       └── graph/              chain model + real-time graph engine
 ├── app/                        JUCE app + plugins
 │   ├── CMakeLists.txt          juce_add_plugin (VST3, Standalone, AU on macOS)
 │   └── source/
-│       ├── PluginProcessor.*   audio engine host, state, meters, tuner feed
+│       ├── PluginProcessor.*   front end, chain editing, slots, state, meters, tuner feed
 │       ├── PluginEditor.*      window, layout, themes, timers
-│       └── ui/                 LookAndFeel, widgets (knobs, meters, tuner), panels
+│       ├── engine/             AmpBlock (models + NAM, 4x OS), CabBlock (cab/IR/room)
+│       └── ui/                 LookAndFeel, widgets, panels, pedalboard + effect editor
 ├── tests/                      core unit tests (CTest)
 ├── resources/branding/         icon (SVG + PNGs), wordmark, reference photo
 ├── scripts/make_branding.py    regenerates icon/wordmark
@@ -229,10 +279,7 @@ new-app/
 └── .github/workflows/build.yml Windows / macOS / Linux CI builds + tests
 ```
 
-Planned additions: `core/include/vf/models/` (amp registry + data),
-`core/include/vf/fx/` (effects), `core/include/vf/graph/` (routing engine),
-`third_party/` (NAM core, Eigen, json as submodules), `resources/irs/`,
-`presets/factory/`, `installers/`.
+Planned additions: `resources/irs/`, `presets/factory/`, `installers/`.
 
 ## 9. Realistic roadmap
 
@@ -244,35 +291,67 @@ quality bars (every model distinct, every effect production-grade) dominate.
 | **1 — Shell** | Architecture, CMake, app/plugin shell, UI, branding, icon, reference amp voice, tuner, tests, CI | Builds on 3 OSes, tests pass, every visible control works | **Done** |
 | **2 — Engine** | Circuit-solved triodes with grid blocking, model registry, 10 clean/crunch/OD models (14 channels), tube swap, parametric cab sim with mic controls | All models distinct + level-matched in tests; click-free switching | **Done** (your A/B listening notes still wanted) |
 | **3 — Catalog** | NAM engine; WAV/AIFF IR loading (A/B, blend, phase, stereo), mic types, low/high cut, room; 104-model catalog incl. Mesa Mark + Rectifier + Marshall collections; categorized amp menu; graphic EQ | All models distinct + level-matched; NAM/IR load and swap click-free; sanitizer-clean | **Done** |
-| 4 — Effects | Effect framework, 100+ effects across 6 categories, graph engine, drag-and-drop pedalboard, parallel/split/merge | Each effect has tests; routing changes are click-free | 8–14 weeks |
+| **4 — Effects** | Effect framework, 107 effects across 9 categories, graph engine, drag-and-drop pedalboard, parallel/split/merge, Amp 2 / Cab 2 | Each effect has tests; routing changes are click-free | **Done** |
 | 5 — Presets & plugin | Preset system (tags, favourites, search, import/export), factory presets per amp family, automation polish, stereo routing | Sessions restore exactly in Reaper, Logic, Ableton, Cubase, LUNA | 3–5 weeks |
 | 6 — Optimisation & QA | SIMD, CPU profiling, latency tests, pluginval, DAW matrix on 3 OSes | pluginval strictness 10 passes; CPU budget met | 3–4 weeks |
 | 7 — Release | Installers (pkg/notarised, Inno Setup/MSI, Linux tarball/deb), docs, manual | Signed installers, manual, release notes | 2–3 weeks |
 
-## 10. Current status (Phase 3)
+## 10. Current status (Phase 4)
 
 Verified:
 
-- **Core tests: 8,629 checks** — every tone stack passive, 12AX7 operating
-  points, grid bias shift and recovery, every model/channel bounded at
-  extremes, gain sweeps every tube channel from cleaner to dirtier,
-  clean-headroom amps respond with level, level matching within 4 dB,
-  model-level distinctness (tone + breakup fingerprints), catalog coverage
-  (12 categories, Mesa Mark I–VII + Rectifiers, Marshall list), graphic EQ,
-  click-free model switching, cabinets, mic types, room, resampler, post-EQ,
-  gate, tuner, parameters, calibration table freshness.
-- **NAM tests: 37 checks** — metadata, all 9 NAM example models load and
-  play (WaveNet, LSTM, A2/slimmable…), pass-through, 44.1/48/96 kHz match,
-  click-free swaps and unload, invalid files rejected.
-- Both suites are clean under AddressSanitizer + UndefinedBehaviorSanitizer.
-- **End-to-end smoke test** (`tools/snapshot`, `-DVF_BUILD_SNAPSHOT_TOOL=ON`):
-  creates the real plugin, runs audio through Modeled / Mark+GEQ / NAM /
-  IR A+B scenarios, checks the output is finite and non-silent, and renders
-  the UI (screenshots in `docs/images`).
-- Standalone + VST3 build with zero warnings in project code on Linux; CI
+- **Core tests: 8,629 checks.** Covered: every tone stack passive, 12AX7
+  operating points, grid bias shift and recovery, and every model/channel
+  bounded at extremes. Gain sweeps take every tube channel from cleaner to
+  dirtier, and clean-headroom amps respond with level. Level matching is within
+  4 dB, and models are distinct at model level (tone + breakup fingerprints).
+  Catalog coverage (12 categories, Mesa Mark I–VII + Rectifiers, Marshall
+  list), graphic EQ, click-free model switching, cabinets, mic types, room,
+  resampler, post-EQ, gate, tuner, parameters and calibration-table freshness
+  are also checked.
+- **Effects + graph tests: 15,665 checks.**
+  - Registry: at least 100 types, unique IDs and names, valid metadata, and
+    every category populated.
+  - Every effect is finite and bounded at defaults and at every parameter
+    extreme at 44.1/48/96 kHz, and with random settings plus a 3 s tail.
+  - Every parameter of every effect changes the sound.
+  - Every effect is distinct from the dry signal and from every other effect
+    (5,460 pairs).
+  - process, setParam and reset never allocate. Reset clears all state.
+  - CPU: each effect is far below real time.
+  - Behaviour: oversampler (passband, image and alias rejection), delay timing
+    and feedback, reverb decay scaling, compressor ratio and limiter ceiling,
+    pitch ±12 and octaver.
+  - Looper: record, play, level, half speed, reverse, overdub, stop and clear.
+  - Freeze, tuner mute, pan law, gate and volume taper.
+  - Chain model: insert/move/remove, split folding, serialisation round trip
+    and robust parsing.
+  - Graph: serial order, Y and L/R split, merge level/pan, lane latency
+    compensation, click-free bypass and plan swaps, and garbage collection
+    only on the message thread.
+  - Real effects keep running in two lanes while another thread churns plans,
+    with no audio-thread allocation.
+- **NAM tests: 37 checks** (unchanged).
+- All suites are clean under AddressSanitizer + UndefinedBehaviorSanitizer.
+  The effects/graph suite is also clean under ThreadSanitizer.
+- **End-to-end smoke test** (`tools/snapshot`). It runs the real plugin
+  through Modeled, Mark+GEQ, NAM, IR A+B and two Phase 4 scenarios:
+  - `chain`: wah → gate → drive → split [Amp 1 + Cab 1 ∥ Amp 2 + Cab 2 + chorus],
+    panned apart → tape delay → hall. Output is checked finite, non-silent and
+    stereo, and the session round-trips exactly through a fresh processor.
+  - `fx`: the same chain with the stompbox editor open.
+
+  Screenshots are in `docs/images`.
+- Standalone + VST3 build with no warnings in project code on Linux; CI
   builds and tests on Windows, macOS and Linux.
 
-Not done yet (later phases): effects library and pedalboard (4), presets
-and factory presets (5), performance/compatibility passes (6), installers
-and manual (7). Measured IRs bundled with the app: none yet — the built-in
-cab is the parametric model; users load their own IRs.
+Not done yet (later phases):
+
+- Phase 5: presets and factory presets. Tempo sync for delays and modulation
+  also lands here, alongside the preset/host-tempo work.
+- Phase 6: performance and compatibility passes.
+- Phase 7: installers and manual.
+
+The harmonizer uses fixed intervals, not key/scale-aware intervals. Measured
+IRs bundled with the app: none yet. The built-in cab is the parametric model,
+and users load their own IRs.

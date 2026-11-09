@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "ui/Panels.h"
+#include "ui/Pedalboard.h"
 #include "ui/ViridianLookAndFeel.h"
 
 class ViridianForgeEditor : public juce::AudioProcessorEditor,
@@ -18,12 +19,16 @@ public:
 
     static constexpr int baseWidth = 1280, baseHeight = 800;
 
+    /** Select a chain block for editing (as a click on the pedalboard would). */
+    void selectBlock (int key) { pedalboard.select (key); }
+
 private:
     void timerCallback() override;
     void valueChanged (juce::Value&) override;
     void applyTheme();
     void updateLiveInputButton();
     bool isStandalone() const;
+    void showBlock (int key);   // put the selected block's editor in the main area
 
     ViridianForgeProcessor& processor;
     ViridianLookAndFeel laf;
@@ -31,9 +36,10 @@ private:
 
     TopBar topBar;
     IOPanel ioPanel;
-    AmpHeadPanel ampHead;
-    CabPanel cabPanel;
-    SignalChainStrip chain;
+    AmpHeadPanel ampHead1, ampHead2;
+    CabPanel cabPanel1, cabPanel2;
+    EffectEditor effectEditor;
+    Pedalboard pedalboard;
     AboutOverlay about;
     std::unique_ptr<SplashOverlay> splash;
 
