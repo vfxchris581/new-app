@@ -1,5 +1,15 @@
 #include "CabBlock.h"
 
+namespace
+{
+// 0..10 volume knob -> gain. Silent at 0, then equal dB steps (3.6 dB per step, 0 dB at 10),
+// so every step is heard as the same change. A linear taper bunched all the audible change at the top.
+float volumeKnobToGain (float knob) noexcept
+{
+    return knob <= 0.0f ? 0.0f : juce::Decibels::decibelsToGain ((knob - 10.0f) * 3.6f);
+}
+}
+
 CabBlock::CabBlock (juce::AudioProcessorValueTreeState& state, const juce::String& prefix, const juce::String& keyPrefix)
     : apvts (state)
 {
@@ -82,7 +92,7 @@ void CabBlock::prepare (double sampleRate, int maxBlockSize)
     irBlend.reset (sampleRate, 0.03);
     irBlend.setCurrentAndTargetValue (raw.irBlend->load() / 10.0f);
     roomAmount.reset (sampleRate, 0.05);
-    roomAmount.setCurrentAndTargetValue (raw.room->load() / 10.0f);
+    roomAmount.setCurrentAndTargetValue (volumeKnobToGain (raw.room->load()));
     cabSwitch.reset (sampleRate, sourceFromParams());
     prepared = true;
 }
@@ -103,7 +113,7 @@ void CabBlock::process (float* l, float* r, int n) noexcept
     updateMics();
     cabMix.setTargetValue (raw.cabOn->load() > 0.5f ? 1.0f : 0.0f);
     irBlend.setTargetValue (raw.irBlend->load() / 10.0f);
-    roomAmount.setTargetValue (raw.room->load() / 10.0f);
+    roomAmount.setTargetValue (volumeKnobToGain (raw.room->load()));
     cabSwitch.target = sourceFromParams();
     phaseB = raw.irPhaseB->load() > 0.5f;
     stereo = raw.cabStereo->load() > 0.5f;
