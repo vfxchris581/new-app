@@ -82,7 +82,8 @@ private:
     int index = 0;
     LedSwitch cabOn, phaseB, stereo;
     ChannelSelector source;
-    ChoiceBox cabModel, micType;
+    CabModelSelector cabModel;
+    ChoiceBox micType;
     LabeledKnob micPosition, micDistance, blend, lowCut, highCut, room;
     FileSlot irA { "IR A", "IRs", "*.wav;*.aif;*.aiff" }, irB { "IR B", "IRs", "*.wav;*.aif;*.aiff" };
     std::unique_ptr<juce::ParameterAttachment> modelWatch, sourceWatch;

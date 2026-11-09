@@ -602,6 +602,44 @@ int main()
         check (at (MicType::Condenser, 7000.0) > at (MicType::Dynamic57, 7000.0) * 1.5, "condenser has more extended top");
     });
 
+    test ("Cabinet catalog: 20 4x12s, a wide range of 2x12s, mixed-speaker cabs", []
+    {
+        int fourTwelves = 0, twoTwelves = 0;
+        for (int c = 0; c < static_cast<int> (CabModel::count); ++c)
+        {
+            const auto& spec = getCabinetSpec (static_cast<CabModel> (c));
+            fourTwelves += spec.speakers == 4 && spec.inches == 12 ? 1 : 0;
+            twoTwelves += spec.speakers == 2 && spec.inches == 12 ? 1 : 0;
+            check (std::string (spec.name).rfind (std::to_string (spec.speakers) + "x" + std::to_string (spec.inches), 0) == 0, std::string (spec.name) + " name matches its layout");
+            check (spec.mixWith < static_cast<int> (CabModel::count) && spec.mixWith != c, std::string (spec.name) + " mix reference valid");
+            // finite everywhere a mic can go
+            bool ok = true;
+            for (int spk = 0; spk < spec.speakers; ++spk)
+                for (float pos : { 0.0f, 1.0f })
+                    for (float dist : { 0.0f, 1.0f })
+                        for (bool back : { false, true })
+                        {
+                            CabinetSim sim; sim.prepare (48000.0); sim.setParams (static_cast<CabModel> (c), pos, dist); sim.setPlacement (spk, 60.0f); sim.setBack (back); sim.update();
+                            for (double f = 40.0; f < 20000.0; f *= 1.5) ok = ok && std::isfinite (sim.magnitudeAt (f)) && sim.magnitudeAt (f) < 20.0;
+                        }
+            check (ok, std::string (spec.name) + " finite and bounded at every mic placement");
+        }
+        check (fourTwelves >= 20, "at least 20 4x12 cabinets (" + std::to_string (fourTwelves) + ")");
+        check (twoTwelves >= 12, "at least 12 2x12 cabinets (" + std::to_string (twoTwelves) + ")");
+
+        auto avgDiff = [] (CabModel m, int s1, int s2)
+        {
+            CabinetSim a; a.prepare (48000.0); a.setParams (m, 0.3f, 0.2f); a.setPlacement (s1, 0.0f); a.update();
+            CabinetSim b; b.prepare (48000.0); b.setParams (m, 0.3f, 0.2f); b.setPlacement (s2, 0.0f); b.update();
+            double d = 0.0; int n = 0;
+            for (double f = 300.0; f < 8000.0; f *= 1.1) { d += std::fabs (20.0 * std::log10 (a.magnitudeAt (f) / b.magnitudeAt (f))); ++n; }
+            return d / n;
+        };
+        check (avgDiff (CabModel::UberMix4x12, 0, 1) > 1.0, "mixed 4x12: the two speaker types sound clearly different (" + std::to_string (avgDiff (CabModel::UberMix4x12, 0, 1)) + " dB)");
+        check (avgDiff (CabModel::UberMix4x12, 0, 1) > 2.0 * avgDiff (CabModel::RectOversize4x12, 0, 1), "...far more than two speakers of the same type");
+        check (avgDiff (CabModel::CreamMix2x12, 0, 1) > 1.0, "mixed 2x12: V30 and Creamback differ");
+    });
+
     test ("Mic placement: angle, speaker choice and Phase 3 compatibility", []
     {
         auto db = [] (double m) { return 20.0 * std::log10 (m); };

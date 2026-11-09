@@ -1,5 +1,6 @@
 #include "Widgets.h"
 #include "vf/models/AmpModels.h"
+#include "vf/dsp/Cabinet.h"
 
 using namespace juce;
 
@@ -145,6 +146,44 @@ AmpModelSelector::AmpModelSelector (APVTS& state, const String& paramId)
     });
     box.onChange = [this] { if (box.getSelectedId() > 0) attachment->setValueAsCompleteGesture ((float) (box.getSelectedId() - 1)); };
     attachment->sendInitialUpdate();
+}
+
+CabModelSelector::CabModelSelector (APVTS& state, const String& paramId, const String& label)
+{
+    using namespace vf::dsp;
+    const int n = static_cast<int> (CabModel::count);
+    auto group = [&] (const char* heading, auto&& belongs)
+    {
+        box.addSectionHeading (heading);
+        for (int m = 0; m < n; ++m)
+            if (belongs (getCabinetSpec (static_cast<CabModel> (m))))
+                box.addItem (getCabinetSpec (static_cast<CabModel> (m)).name, m + 1);
+    };
+    group ("4x12", [] (const CabinetSpec& c) { return c.speakers == 4 && c.inches == 12; });
+    group ("2x12", [] (const CabinetSpec& c) { return c.speakers == 2; });
+    group ("1x12 / 4x10", [] (const CabinetSpec& c) { return c.speakers == 1 || c.inches == 10; });
+    addAndMakeVisible (box);
+    caption.setText (label.toUpperCase(), dontSendNotification);
+    caption.setJustificationType (Justification::centredLeft);
+    addAndMakeVisible (caption);
+
+    attachment = std::make_unique<ParameterAttachment> (*state.getParameter (paramId), [this] (float v)
+    {
+        const int m = jlimit (0, static_cast<int> (vf::dsp::CabModel::count) - 1, roundToInt (v));
+        box.setSelectedId (m + 1, dontSendNotification);
+        const auto& c = vf::dsp::getCabinetSpec (static_cast<vf::dsp::CabModel> (m));
+        box.setTooltip (String ("Inspired by ") + c.inspiredBy + " - " + c.speaker
+                        + ". Names are trademarks of their owners; no affiliation implied.");
+    });
+    box.onChange = [this] { if (box.getSelectedId() > 0) attachment->setValueAsCompleteGesture ((float) (box.getSelectedId() - 1)); };
+    attachment->sendInitialUpdate();
+}
+
+void CabModelSelector::resized()
+{
+    auto r = getLocalBounds();
+    caption.setBounds (r.removeFromTop (r.getHeight() / 3));
+    box.setBounds (r);
 }
 
 void AmpModelSelector::resized()

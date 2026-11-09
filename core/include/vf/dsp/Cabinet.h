@@ -23,6 +23,9 @@ struct CabinetSpec
 {
     const char* name;
     const char* speaker;   // speaker family the voicing is inspired by
+    const char* inspiredBy; // the cabinet whose sound guided it (description only; no affiliation)
+    int speakers;          // 1, 2 or 4
+    int inches;            // 10 or 12
     bool openBack;
     float lowCutHz;        // where the low end falls away
     float resonanceHz, resonanceDb, resonanceQ;
@@ -30,22 +33,52 @@ struct CabinetSpec
     float presenceHz, presenceDb;      // main upper-mid peak
     float breakupHz, breakupDb;        // cone break-up peak
     float rollOffHz;                   // top-end roll-off (centre mic)
+    int mixWith;                       // mixed-speaker cab: diagonal speakers (2 and 3 of a 4x12, 2 of a 2x12) use this cab's speaker voice; -1 = none
 };
 
-enum class CabModel { American1x12Open = 0, Alnico2x12Open, Tweed4x10Open, Greenback4x12, V30_4x12, Modern4x12, British1x12Closed, count };
+/** Cabinet models. IDs are stored in sessions: append only, never reorder. */
+enum class CabModel { American1x12Open = 0, Alnico2x12Open, Tweed4x10Open, Greenback4x12, V30_4x12, Modern4x12, British1x12Closed, RectOversize4x12, RectSlant4x12, PlexiT75_4x12, BritHeritage4x12, TeutonicV60_4x12, UberMix4x12, BlackDiesel4x12, FiftyOneFifty4x12, Sheffield4x12, Citrus4x12, EVMHeavy4x12, KrankMonster4x12, CreamClassic4x12, KiloK100_4x12, Swamp4x12, DjentPorted4x12, RearLoaded4x12, Rect2x12, Blackface2x12Open, Boutique2x12Open, Greenback2x12, V30_2x12, Teutonic2x12, FiftyOneFifty2x12, Citrus2x12, Dumble2x12Open, CreamMix2x12, Sheffield2x12, count };
 
 inline const CabinetSpec& getCabinetSpec (CabModel m)
 {
     static const std::array<CabinetSpec, static_cast<size_t> (CabModel::count)> specs {{
-        { "1x12 American Open",  "Jensen-style ceramic", true,  95.0f, 120.0f, 2.5f, 1.4f,   700.0f, -2.0f, 0.9f, 2400.0f, 3.5f, 4600.0f, 2.5f, 5600.0f },
-        { "2x12 Alnico Open",    "Alnico Blue-style",    true,  85.0f, 105.0f, 2.0f, 1.2f,  1100.0f,  1.5f, 1.0f, 3100.0f, 4.5f, 5200.0f, 3.0f, 6200.0f },
-        { "4x10 Tweed Open",     "Vintage alnico 10s",   true, 100.0f, 140.0f, 3.0f, 1.3f,   900.0f,  2.0f, 0.8f, 2200.0f, 3.0f, 4000.0f, 2.0f, 5000.0f },
-        { "4x12 Greenback",      "Greenback-style",      false, 70.0f,  95.0f, 4.5f, 1.6f,  1400.0f,  2.5f, 0.9f, 2000.0f, 3.0f, 3600.0f, 2.0f, 4800.0f },
-        { "4x12 V30",            "Vintage 30-style",     false, 72.0f, 100.0f, 4.0f, 1.8f,   850.0f, -2.5f, 1.2f, 2800.0f, 6.0f, 4700.0f, 3.5f, 5600.0f },
-        { "4x12 Modern Metal",   "Modern ceramic",       false, 65.0f,  85.0f, 5.5f, 1.8f,   600.0f, -3.5f, 1.0f, 3300.0f, 5.0f, 5600.0f, 3.0f, 6500.0f },
-        { "1x12 British Closed", "Creamback-style",      false, 85.0f, 115.0f, 3.5f, 1.5f,  1200.0f,  1.0f, 0.9f, 2500.0f, 3.5f, 4300.0f, 2.0f, 5300.0f },
+        { "1x12 American Open", "Jensen-style ceramic", "blackface Fender 1x12 combo (open back)", 1, 12, true, 95.0f, 120.0f, 2.5f, 1.4f, 700.0f, -2.0f, 0.9f, 2400.0f, 3.5f, 4600.0f, 2.5f, 5600.0f, -1 },
+        { "2x12 Alnico Open", "Alnico Blue-style", "Vox AC30 2x12 (Alnico Blue)", 2, 12, true, 85.0f, 105.0f, 2.0f, 1.2f, 1100.0f, 1.5f, 1.0f, 3100.0f, 4.5f, 5200.0f, 3.0f, 6200.0f, -1 },
+        { "4x10 Tweed Open", "Vintage alnico 10s", "Fender '59 Bassman 4x10", 4, 10, true, 100.0f, 140.0f, 3.0f, 1.3f, 900.0f, 2.0f, 0.8f, 2200.0f, 3.0f, 4000.0f, 2.0f, 5000.0f, -1 },
+        { "4x12 Greenback", "Greenback-style", "Marshall 1960B with G12M Greenbacks", 4, 12, false, 70.0f, 95.0f, 4.5f, 1.6f, 1400.0f, 2.5f, 0.9f, 2000.0f, 3.0f, 3600.0f, 2.0f, 4800.0f, -1 },
+        { "4x12 V30", "Vintage 30-style", "British 4x12 with Celestion Vintage 30s", 4, 12, false, 72.0f, 100.0f, 4.0f, 1.8f, 850.0f, -2.5f, 1.2f, 2800.0f, 6.0f, 4700.0f, 3.5f, 5600.0f, -1 },
+        { "4x12 Modern Metal", "Modern ceramic", "modern high-gain 4x12s", 4, 12, false, 65.0f, 85.0f, 5.5f, 1.8f, 600.0f, -3.5f, 1.0f, 3300.0f, 5.0f, 5600.0f, 3.0f, 6500.0f, -1 },
+        { "1x12 British Closed", "Creamback-style", "closed-back British 1x12 with a G12M-65", 1, 12, false, 85.0f, 115.0f, 3.5f, 1.5f, 1200.0f, 1.0f, 0.9f, 2500.0f, 3.5f, 4300.0f, 2.0f, 5300.0f, -1 },
+        { "4x12 Rect Oversize", "Vintage 30-style", "Mesa/Boogie Rectifier Standard 4x12 (oversized)", 4, 12, false, 60.0f, 76.0f, 6.5f, 1.6f, 920.0f, -3.5f, 1.0f, 2650.0f, 6.5f, 4800.0f, 3.5f, 5800.0f, -1 },
+        { "4x12 Rect Slant", "Vintage 30-style", "Mesa/Boogie Rectifier Traditional slant 4x12", 4, 12, false, 67.0f, 90.0f, 5.0f, 1.7f, 820.0f, -2.0f, 1.1f, 3000.0f, 6.0f, 5100.0f, 4.0f, 6100.0f, -1 },
+        { "4x12 Plexi T75", "G12T-75-style", "Marshall 1960A with G12T-75s", 4, 12, false, 68.0f, 96.0f, 4.5f, 1.5f, 760.0f, -5.0f, 0.9f, 3700.0f, 5.0f, 5500.0f, 4.0f, 6700.0f, -1 },
+        { "4x12 Brit Heritage", "G12H-30-style", "Marshall 1960AHW with G12H-30 Heritage", 4, 12, false, 74.0f, 106.0f, 3.5f, 1.6f, 1500.0f, 3.5f, 1.0f, 2800.0f, 3.0f, 4200.0f, 3.0f, 5800.0f, -1 },
+        { "4x12 Teutonic V60", "V60-style", "ENGL Pro 4x12 (V60)", 4, 12, false, 66.0f, 82.0f, 6.0f, 2.0f, 1000.0f, -2.5f, 1.0f, 2900.0f, 4.0f, 4600.0f, 1.5f, 6800.0f, -1 },
+        { "4x12 Uber Mix", "Vintage 30 + G12T-75", "Bogner Uberkab (V30 + T75, mixed)", 4, 12, false, 60.0f, 72.0f, 6.0f, 1.4f, 1000.0f, -1.0f, 1.0f, 3200.0f, 5.0f, 5300.0f, 3.5f, 6400.0f, 9 },
+        { "4x12 Black Diesel", "Vintage 30-style", "Diezel front-loaded 4x12 (V30)", 4, 12, false, 62.0f, 82.0f, 6.0f, 1.9f, 700.0f, -4.0f, 1.0f, 2550.0f, 5.5f, 4500.0f, 3.5f, 5500.0f, -1 },
+        { "4x12 Fifty-One Fifty", "G12-EVH-style", "EVH 5150III 4x12", 4, 12, false, 66.0f, 92.0f, 5.0f, 1.7f, 1150.0f, 2.0f, 1.1f, 2350.0f, 4.5f, 4400.0f, 2.5f, 5300.0f, -1 },
+        { "4x12 Sheffield 6505", "Sheffield 1200-style", "Peavey 6505 4x12 (Sheffield 1200)", 4, 12, false, 58.0f, 78.0f, 7.0f, 1.5f, 500.0f, -5.0f, 0.9f, 3200.0f, 6.0f, 5700.0f, 4.0f, 6900.0f, -1 },
+        { "4x12 Citrus PPC", "Vintage 30-style", "Orange PPC412 (V30)", 4, 12, false, 74.0f, 112.0f, 3.0f, 1.4f, 650.0f, 1.5f, 0.7f, 2200.0f, 5.0f, 3800.0f, 3.5f, 4500.0f, -1 },
+        { "4x12 EVM Heavy", "EVM12L-style", "Mesa/Boogie 4x12 with Electro-Voice EVM12Ls", 4, 12, false, 57.0f, 74.0f, 4.0f, 1.3f, 900.0f, 0.0f, 1.0f, 3000.0f, 1.5f, 6200.0f, 1.0f, 7600.0f, -1 },
+        { "4x12 Krank Monster", "Vintage 30-style", "Krank Krankenstein 4x12 (extra-heavy)", 4, 12, false, 61.0f, 86.0f, 6.5f, 2.0f, 640.0f, -5.0f, 1.2f, 2900.0f, 7.0f, 4700.0f, 4.5f, 5700.0f, -1 },
+        { "4x12 Cream Classic", "Creamback-style", "Friedman 4x12 with G12M-65 Creambacks", 4, 12, false, 66.0f, 88.0f, 5.0f, 1.6f, 1000.0f, 1.0f, 1.0f, 2600.0f, 2.5f, 4400.0f, 1.5f, 5600.0f, -1 },
+        { "4x12 Kilo K100", "G12K-100-style", "Marshall 4x12 with G12K-100s", 4, 12, false, 62.0f, 92.0f, 4.0f, 1.3f, 1300.0f, 1.5f, 1.0f, 3700.0f, 3.0f, 5900.0f, 2.5f, 7000.0f, -1 },
+        { "4x12 Swamp", "Swamp Thang-style", "4x12 with Eminence Swamp Thangs", 4, 12, false, 56.0f, 70.0f, 6.0f, 1.5f, 600.0f, -2.0f, 1.0f, 2700.0f, 4.0f, 5000.0f, 2.0f, 6000.0f, -1 },
+        { "4x12 Djent Ported", "modern extended-range", "ported modern-metal 4x12s for 7- and 8-strings", 4, 12, false, 52.0f, 66.0f, 3.0f, 1.2f, 720.0f, -2.5f, 1.2f, 3350.0f, 5.0f, 6000.0f, 3.0f, 7000.0f, -1 },
+        { "4x12 Rear-Loaded", "Vintage 30-style", "Diezel rear-loaded 4x12 (V30)", 4, 12, false, 64.0f, 94.0f, 5.0f, 1.5f, 1100.0f, 1.0f, 1.2f, 3050.0f, 5.0f, 4800.0f, 3.0f, 6000.0f, -1 },
+        { "2x12 Rect Closed", "Vintage 30-style", "Mesa/Boogie Rectifier 2x12", 2, 12, false, 72.0f, 100.0f, 5.0f, 1.5f, 950.0f, -3.5f, 1.0f, 2600.0f, 6.5f, 4700.0f, 3.5f, 5600.0f, -1 },
+        { "2x12 Blackface Open", "C12K-style", "Fender Twin Reverb 2x12 (open back)", 2, 12, true, 92.0f, 118.0f, 2.0f, 1.2f, 600.0f, -3.0f, 0.8f, 2600.0f, 3.0f, 5000.0f, 2.5f, 6800.0f, -1 },
+        { "2x12 Boutique Open", "G12H + Greenback", "Matchless ESS 2x12 (mixed)", 2, 12, true, 80.0f, 120.0f, 3.0f, 1.3f, 1600.0f, 3.5f, 1.2f, 3400.0f, 2.5f, 5800.0f, 2.0f, 6600.0f, 3 },
+        { "2x12 Greenback Closed", "Greenback-style", "Marshall 1936 2x12 (G12M)", 2, 12, false, 80.0f, 116.0f, 3.5f, 1.5f, 1400.0f, 2.5f, 1.0f, 2100.0f, 3.0f, 3700.0f, 2.0f, 4800.0f, -1 },
+        { "2x12 V30 Closed", "Vintage 30-style", "modern closed-back 2x12 with V30s", 2, 12, false, 84.0f, 120.0f, 3.0f, 1.8f, 800.0f, -2.0f, 1.2f, 3000.0f, 5.0f, 5000.0f, 4.0f, 5900.0f, -1 },
+        { "2x12 Teutonic Closed", "V60-style", "ENGL 2x12 (V60)", 2, 12, false, 74.0f, 104.0f, 4.5f, 1.8f, 760.0f, -3.0f, 1.0f, 3150.0f, 5.0f, 5100.0f, 3.0f, 6100.0f, -1 },
+        { "2x12 Fifty-One Fifty", "G12-EVH-style", "EVH 5150III 2x12", 2, 12, false, 72.0f, 100.0f, 5.0f, 1.8f, 1200.0f, 3.0f, 1.1f, 2300.0f, 5.5f, 4200.0f, 3.0f, 5100.0f, -1 },
+        { "2x12 Citrus Closed", "Vintage 30-style", "Orange PPC212 (V30)", 2, 12, false, 70.0f, 92.0f, 5.5f, 1.4f, 800.0f, 0.5f, 0.9f, 2300.0f, 4.5f, 4000.0f, 3.5f, 4900.0f, -1 },
+        { "2x12 Dumble Open", "EVM12L-style", "Dumble-style 2x12 with EVMs (open back)", 2, 12, true, 88.0f, 100.0f, 2.0f, 1.1f, 800.0f, -1.0f, 0.9f, 3200.0f, 2.0f, 6000.0f, 1.0f, 7500.0f, -1 },
+        { "2x12 Cream Mix", "Creamback + Vintage 30", "Friedman 2x12 (V30 + Creamback)", 2, 12, false, 76.0f, 106.0f, 4.5f, 1.6f, 1150.0f, 2.0f, 1.0f, 2450.0f, 3.5f, 4100.0f, 2.5f, 5100.0f, 4 },
+        { "2x12 Sheffield Closed", "Sheffield 1200-style", "Peavey 6505 2x12 (Sheffield 1200)", 2, 12, false, 70.0f, 96.0f, 5.5f, 1.5f, 500.0f, -5.0f, 0.9f, 3200.0f, 6.0f, 5700.0f, 4.0f, 6900.0f, -1 },
     }};
-    return specs[static_cast<size_t> (m)];
+    return specs[static_cast<size_t> (std::min (static_cast<int> (m), static_cast<int> (CabModel::count) - 1))];
 }
 
 /** Microphone families with their characteristic close-mic response. */
@@ -91,7 +124,41 @@ inline const MicSpec& getMicSpec (MicType m)
 }
 
 inline constexpr std::array<const char*, static_cast<size_t> (CabModel::count)> cabModelNames {
-    "1x12 American Open", "2x12 Alnico Open", "4x10 Tweed Open", "4x12 Greenback", "4x12 V30", "4x12 Modern Metal", "1x12 British Closed"
+    "1x12 American Open",
+    "2x12 Alnico Open",
+    "4x10 Tweed Open",
+    "4x12 Greenback",
+    "4x12 V30",
+    "4x12 Modern Metal",
+    "1x12 British Closed",
+    "4x12 Rect Oversize",
+    "4x12 Rect Slant",
+    "4x12 Plexi T75",
+    "4x12 Brit Heritage",
+    "4x12 Teutonic V60",
+    "4x12 Uber Mix",
+    "4x12 Black Diesel",
+    "4x12 Fifty-One Fifty",
+    "4x12 Sheffield 6505",
+    "4x12 Citrus PPC",
+    "4x12 EVM Heavy",
+    "4x12 Krank Monster",
+    "4x12 Cream Classic",
+    "4x12 Kilo K100",
+    "4x12 Swamp",
+    "4x12 Djent Ported",
+    "4x12 Rear-Loaded",
+    "2x12 Rect Closed",
+    "2x12 Blackface Open",
+    "2x12 Boutique Open",
+    "2x12 Greenback Closed",
+    "2x12 V30 Closed",
+    "2x12 Teutonic Closed",
+    "2x12 Fifty-One Fifty",
+    "2x12 Citrus Closed",
+    "2x12 Dumble Open",
+    "2x12 Cream Mix",
+    "2x12 Sheffield Closed"
 };
 
 /** Physical layout of a cabinet's baffle (for mic placement and speaker bleed). */
@@ -114,18 +181,18 @@ struct CabGeometry
 
 inline CabGeometry getCabGeometry (CabModel m) noexcept
 {
-    switch (m)
-    {
-        case CabModel::Alnico2x12Open: return { 2, 2, 34.0f, 13.0f };
-        case CabModel::Tweed4x10Open:  return { 4, 2, 28.0f, 11.0f };
-        case CabModel::Greenback4x12:
-        case CabModel::V30_4x12:
-        case CabModel::Modern4x12:     return { 4, 2, 34.0f, 13.0f };
-        case CabModel::American1x12Open:
-        case CabModel::British1x12Closed:
-        case CabModel::count:
-        default:                       return { 1, 1, 34.0f, 13.0f };
-    }
+    const auto& c = getCabinetSpec (m);
+    const float spacing = c.inches == 10 ? 28.0f : 34.0f, cone = c.inches == 10 ? 11.0f : 13.0f;
+    return { c.speakers, c.speakers >= 2 ? 2 : 1, spacing, cone };
+}
+
+/** Speaker voice for one speaker of a cab: mixed cabs carry a second speaker type. */
+inline const CabinetSpec& speakerVoice (CabModel m, int speakerIndex) noexcept
+{
+    const auto& c = getCabinetSpec (m);
+    if (c.mixWith < 0) return c;
+    const bool mixed = c.speakers == 4 ? (speakerIndex == 1 || speakerIndex == 2) : (c.speakers == 2 && speakerIndex == 1);
+    return mixed ? getCabinetSpec (static_cast<CabModel> (c.mixWith)) : c;
 }
 
 inline constexpr float kMaxMicDistanceCm = 30.0f;  // distance knob 10 = 30 cm off the grille
@@ -187,6 +254,7 @@ public:
         static constexpr double variation[4] { 0.0, 1.0, -0.8, 0.5 };
         const int spk = std::min (std::max (0, speaker), getCabGeometry (current).speakers - 1);
         const double v = variation[spk];
+        const auto& sv = speakerVoice (current, spk);  // the miked speaker's voice (mixed cabs differ per speaker)
         // Off-axis: the mic turns away from the dust cap; highs fall first.
         const double a = std::min (1.0, std::max (0.0, static_cast<double> (angle) / kMaxMicAngleDeg));
 
@@ -204,17 +272,17 @@ public:
 
         const double lowCut = c.lowCutHz * (1.0 + 0.25 * d);              // further away: less low end
         const double proximityDb = 5.0 * micProximity * (1.0 - d) * (1.0 - d); // close-mic bass boost
-        const double rollOff = std::fmin (fs * 0.45, c.rollOffHz * micRoll * (1.0 - 0.45 * p) * (1.0 - 0.15 * d));
-        const double presenceDb = c.presenceDb * micPresence * (1.0 - 0.6 * p) * (1.0 - 0.45 * a);
-        const double breakupDb = c.breakupDb * micBreakup * (1.0 - 0.8 * p) - 1.5 * d + 0.8 * v;
+        const double rollOff = std::fmin (fs * 0.45, sv.rollOffHz * micRoll * (1.0 - 0.45 * p) * (1.0 - 0.15 * d));
+        const double presenceDb = sv.presenceDb * micPresence * (1.0 - 0.6 * p) * (1.0 - 0.45 * a);
+        const double breakupDb = sv.breakupDb * micBreakup * (1.0 - 0.8 * p) - 1.5 * d + 0.8 * v;
         const double offAxisDb = -10.0 * a * a * ms.offAxis;
 
         filters[0].setCoeffs (BiquadCoeffs::highPass (fs, lowCut, c.openBack ? 0.6 : 0.85));
         filters[1].setCoeffs (BiquadCoeffs::peak (fs, c.resonanceHz, c.resonanceQ, c.openBack ? c.resonanceDb * 0.7 : c.resonanceDb));
         filters[2].setCoeffs (BiquadCoeffs::lowShelf (fs, 180.0, 0.7, proximityDb));
-        filters[3].setCoeffs (BiquadCoeffs::peak (fs, c.midHz, c.midQ, c.midDb + 0.4 * v));
-        filters[4].setCoeffs (BiquadCoeffs::peak (fs, c.presenceHz * ms.presenceHz * (1.0 + 0.04 * v), 1.1, presenceDb));
-        filters[5].setCoeffs (BiquadCoeffs::peak (fs, c.breakupHz * (1.0 - 0.05 * v), 2.2, breakupDb));
+        filters[3].setCoeffs (BiquadCoeffs::peak (fs, sv.midHz, sv.midQ, sv.midDb + 0.4 * v));
+        filters[4].setCoeffs (BiquadCoeffs::peak (fs, sv.presenceHz * ms.presenceHz * (1.0 + 0.04 * v), 1.1, presenceDb));
+        filters[5].setCoeffs (BiquadCoeffs::peak (fs, sv.breakupHz * (1.0 - 0.05 * v), 2.2, breakupDb));
         filters[6].setCoeffs (BiquadCoeffs::lowPass (fs, rollOff, 0.54));   // 4th-order roll-off
         filters[7].setCoeffs (BiquadCoeffs::lowPass (fs, rollOff, 1.31));
         filters[8].setCoeffs (BiquadCoeffs::lowPass (fs, std::fmin (11000.0, fs * 0.45), 0.7)); // residual fizz control
@@ -223,6 +291,9 @@ public:
         filters[11].setCoeffs (BiquadCoeffs::lowShelf (fs, 120.0, 0.7, ms.lowDb + backLowDb));
         filters[12].setCoeffs (BiquadCoeffs::peak (fs, 350.0, 0.9, ms.bodyDb));
         filters[13].setCoeffs (BiquadCoeffs::highShelf (fs, c.openBack ? 2500.0 : 900.0, 0.6, backHighDb));
+        // Box size: a closed 4x12's air volume blooms the low mids; a 2x12 is tighter there, a 1x12 tighter still.
+        const double boxDb = c.openBack ? 0.0 : (c.speakers == 4 ? 2.0 : (c.speakers == 2 ? -1.5 : -2.0));
+        filters[14].setCoeffs (BiquadCoeffs::peak (fs, c.speakers == 4 ? 150.0 : 210.0, 0.9, boxDb));
     }
 
     float process (float x) noexcept
@@ -242,7 +313,7 @@ public:
 
 private:
     double fs = 48000.0;
-    std::array<Biquad, 14> filters;
+    std::array<Biquad, 15> filters;
     CabModel current = CabModel::Greenback4x12;
     MicType mic = MicType::Dynamic57;
     float pos = 0.3f, dist = 0.2f, angle = 0.0f;

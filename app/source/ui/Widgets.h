@@ -81,6 +81,19 @@ private:
     int current = 0;
 };
 
+/** Cabinet picker grouped by size (4x12, 2x12, 1x12 / 4x10), keyed by model ID. */
+class CabModelSelector : public juce::Component
+{
+public:
+    CabModelSelector (APVTS& state, const juce::String& paramId, const juce::String& label);
+    void resized() override;
+
+private:
+    juce::ComboBox box;
+    juce::Label caption;
+    std::unique_ptr<juce::ParameterAttachment> attachment;
+};
+
 /** Vertical fader with a label (graphic EQ band). */
 class LabeledFader : public juce::Component
 {

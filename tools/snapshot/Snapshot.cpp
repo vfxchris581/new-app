@@ -151,7 +151,7 @@ int main (int argc, char* argv[])
     else if (scenario == "cab")
     {
         using namespace vf::ParamID;
-        setParam (st, cabModel, static_cast<float> (vf::dsp::CabModel::V30_4x12));
+        setParam (st, cabModel, static_cast<float> (vf::dsp::CabModel::RectOversize4x12));
         setParam (st, micPosition, 2.5f);
         setParam (st, micDistance, 0.5f);
         setParam (st, micBOn, 1.0f);
