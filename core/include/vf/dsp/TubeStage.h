@@ -7,6 +7,7 @@
 
 #include "Biquad.h"
 #include <cmath>
+#include <complex>
 
 namespace vf::dsp
 {
@@ -63,9 +64,10 @@ public:
         reset();
         setTube (PowerTube::EL34);
         setPresenceResonance (0.5f, 0.5f);
+        configureLoad();
     }
 
-    void reset() { presence.reset(); resonance.reset(); voice.reset(); dc.reset(); sagEnv = 0.0f; }
+    void reset() { presence.reset(); resonance.reset(); voice.reset(); dc.reset(); loadLow.reset(); loadHigh.reset(); sagEnv = 0.0f; }
 
     void setTube (PowerTube t)
     {
@@ -83,7 +85,29 @@ public:
     {
         nfb = nfbAmount; sagMul = sagMultiplier; headroomScale = headroomAmount; solidState = isSolidState;
         setPresenceResonance (lastPresence, lastResonance);
+        configureLoad();
     }
+
+    /** Speaker-load interaction. A tube power amp has a high output impedance, so the
+        voltage it delivers follows the loudspeaker's impedance curve: a big rise at the
+        speaker's bass resonance, a dip in the low mids, and a rise in the treble from the
+        voice-coil inductance. Negative feedback lowers the output impedance and flattens
+        it; a solid-state amp is almost flat. This is a large part of the "thump" and
+        "tightness" of a real head into a cab, versus a flat, boxy low-mid. */
+    static double loadResponse (double f, double zOut) noexcept
+    {
+        // Typical 4x12 (normalised to its nominal impedance): Re, bass resonance, voice-coil inductance.
+        constexpr double re = 0.42, f0 = 95.0, qm = 3.2, zRes = 2.6, le = 0.00006;
+        const std::complex<double> jw (0.0, 2.0 * 3.14159265358979 * f);
+        const std::complex<double> w0 (0.0, 2.0 * 3.14159265358979 * f0);
+        // motional impedance: parallel resonance (zRes - re) at f0
+        const std::complex<double> s = jw / std::abs (w0);
+        const std::complex<double> zm = (zRes - re) / (1.0 + qm * (s + 1.0 / s));
+        const std::complex<double> z = re + zm + jw * le;
+        return std::abs (z / (z + zOut));
+    }
+
+    double loadOutputImpedance() const noexcept { return solidState ? 0.02 : std::fmax (0.12, 1.2 - 1.2 * nfb); }
 
     /** 0..1 knob positions. With feedback, presence/resonance reduce the feedback at the
         top/bottom (more gain there). With no feedback, presence acts as a Cut control. */
@@ -113,7 +137,7 @@ public:
             // Transistor power amp: clean until it hits the rails, then clips hard and symmetrically.
             const float a = std::fabs (v);
             const float y = v / std::pow (1.0f + a * a * a * a, 0.25f);
-            return dc.process (y * headroomScale);
+            return dc.process (y * headroomScale);   // near-zero output impedance: flat into the speaker
         }
 
         // Supply sag: heavy output current pulls the supply down, reducing headroom.
@@ -124,7 +148,7 @@ public:
         const float level = std::fabs (y);
         const float coeff = level > sagEnv ? sagAttack : sagRelease;
         sagEnv = flushDenormal (coeff * sagEnv + (1.0f - coeff) * level);
-        return dc.process (y * headroomScale);
+        return dc.process (loadHigh.process (loadLow.process (y)) * headroomScale);
     }
 
     float getSagAmount() const noexcept { return solidState ? 0.0f : sagEnv * profile.sagDepth * sagMul; }
@@ -132,7 +156,21 @@ public:
 private:
     double fs = 48000.0;
     PowerTubeProfile profile = getPowerTubeProfile (PowerTube::EL34);
-    Biquad presence, resonance, voice;
+    Biquad presence, resonance, voice, loadLow, loadHigh;
+
+    void configureLoad() noexcept
+    {
+        // Fit the impedance interaction with a resonance peak and a treble shelf, both
+        // relative to the low-mid minimum (level is restored by the model calibration).
+        const double zo = loadOutputImpedance();
+        const double ref = loadResponse (400.0, zo);
+        const double lowDb = 20.0 * std::log10 (loadResponse (95.0, zo) / ref);
+        const double highDb = 20.0 * std::log10 (loadResponse (6000.0, zo) / ref);
+        loadLow.setCoeffs (BiquadCoeffs::peak (fs, 95.0, 1.6, lowDb));
+        // The treble rise is kept small: measured against captures of real high-gain heads,
+        // the preamps here are already slightly brighter than the real thing.
+        loadHigh.setCoeffs (BiquadCoeffs::highShelf (fs, 2500.0, 0.6, 0.35 * highDb));
+    }
     DcBlocker dc;
     float sagEnv = 0.0f, sagAttack = 0.99f, sagRelease = 0.999f;
     float nfb = 0.5f, sagMul = 1.0f, headroomScale = 1.0f, lastPresence = 0.5f, lastResonance = 0.5f;

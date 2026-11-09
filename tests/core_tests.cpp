@@ -368,6 +368,7 @@ int main()
             for (int mb = ma + 1; mb < M::numAmpModels(); ++mb)
             {
                 bool distinct = false;
+                double bestOverall = 0.0;
                 for (size_t a = 0; a < variants.size() && ! distinct; ++a)
                 {
                     if (variants[a].model != ma && variants[a].model != mb) continue;
@@ -375,9 +376,11 @@ int main()
                     double best = 1e9;
                     for (size_t b = 0; b < variants.size(); ++b)
                         if (variants[b].model == other) best = std::fmin (best, score[a][b]);
+                    bestOverall = std::fmax (bestOverall, best);
                     if (best >= 1.0) distinct = true;
                 }
-                check (distinct, std::string ("models differ: ") + M::getAmpModel (ma).name + " vs " + M::getAmpModel (mb).name);
+                check (distinct, std::string ("models differ: ") + M::getAmpModel (ma).name + " vs " + M::getAmpModel (mb).name
+                                     + " (score " + std::to_string (bestOverall) + ")");
             }
         std::printf ("    %zu channel voicings, %d models; %d cross-model channel pairs are near-twins (allowed when the models still differ)\n",
                      variants.size(), M::numAmpModels(), nearTwinChannels);

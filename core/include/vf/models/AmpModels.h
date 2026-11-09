@@ -433,8 +433,8 @@ inline const std::array<AmpModelSpec, static_cast<size_t> (kNumAmpModels)>& ampM
           detail::brownface(), pw (PowerTube::SixV6, 0.25f, 1.7f, 0.8f), 1,
           {{ channel ("Normal", 2, {{ F (1.0f, 7500.0f), S (1.0f, 6500.0f, 0.0f, 0.0f, 40.0f, 100.0f) }}, 1, 2, 2500.0f, 2.0f) }} },
         { "Magnetic 15", "Magnatone Super Fifteen", AmpCategory::Vintage,
-          detail::brownface(), pw (PowerTube::SixL6, 0.4f, 1.1f, 1.2f), 1,
-          {{ channel ("Vibrato", 2, {{ S (1.0f, 10000.0f, 350.0f, 2.0f), F (0.8f, 9000.0f) }}, 1, 1, 1700.0f, 5.0f) }} },
+          detail::brownface(), pw (PowerTube::SixL6, 0.25f, 1.1f, 1.2f), 1,
+          {{ channel ("Vibrato", 2, {{ H (1.0f, 9000.0f, 300.0f, 3.0f), F (0.9f, 8000.0f) }}, 1, 1, 1500.0f, 6.0f) }} },
         { "Superior 64", "Supro '64 Reverb", AmpCategory::VintageCrunch,
           ToneStackComponents::tweedBassman(), pw (PowerTube::SixV6, 0.2f, 1.8f, 0.7f), 1,
           {{ detail::withStack (channel ("Normal", 2, {{ H (1.0f, 8000.0f, 600.0f, 3.0f), H (1.0f, 7000.0f, 0.0f, 0.0f, 35.0f, 110.0f) }}, 1, 2, 2600.0f, 3.0f), "Superior Tone", 1000, 22, 10, 33) }} },
@@ -484,8 +484,8 @@ inline const std::array<AmpModelSpec, static_cast<size_t> (kNumAmpModels)>& ampM
 
         // ------------------------------------------------------------ 1960s / 1970s (77-86)
         { "Brownline '62", "early-1960s brownface Fender Concert", AmpCategory::Vintage,
-          detail::brownface(), pw (PowerTube::SixL6, 0.45f, 1.2f, 1.2f), 1,
-          {{ channel ("Normal", 2, {{ S (1.0f, 11500.0f), S (0.7f, 9000.0f) }}, 1, 1, 1900.0f, 4.0f) }} },
+          detail::brownface(), pw (PowerTube::T5881, 0.65f, 1.2f, 1.2f), 1,
+          {{ channel ("Normal", 2, {{ S (1.0f, 12500.0f, 600.0f, 3.0f), S (0.7f, 7500.0f) }}, 1, 1, 1900.0f, 4.0f) }} },
         { "Canyon Vibro '64", "mid-1960s blackface Vibroverb", AmpCategory::AmericanClean,
           ToneStackComponents::blackface(), pw (PowerTube::SixL6, 0.5f, 1.3f, 1.1f), 1,
           {{ detail::withStack (channel ("Vibrato", 2, {{ S (1.0f, 13000.0f), S (0.8f, 9800.0f, 0.0f, 0.0f, 35.0f, 70.0f) }}, 1, 1, 1400.0f, 7.0f), "Canyon Vibrato EQ", 680, 100, 47, 39) }} },
