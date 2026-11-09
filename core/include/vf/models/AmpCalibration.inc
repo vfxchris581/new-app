@@ -16,7 +16,7 @@
 {{ 0.5846f, 1.0000f, 1.0000f }}, // Forge 84 Lead
 {{ 1.0173f, 0.2667f, 1.0000f }}, // Forge 90 Dual
 {{ 1.2850f, 0.5892f, 0.3691f }}, // Forge 2K Triple
-{{ 1.3610f, 0.5934f, 0.3661f }}, // Forge 410 Quad
+{{ 1.3610f, 0.5934f, 0.3974f }}, // Forge 410 Quad
 {{ 0.4682f, 0.3319f, 1.0000f }}, // Jubilee 25
 {{ 0.3146f, 0.3579f, 1.0000f }}, // Plate VM
 {{ 0.5241f, 1.0000f, 1.0000f }}, // Plate 72 Early
@@ -38,22 +38,22 @@
 {{ 0.6931f, 0.2035f, 0.2153f }}, // Sierra Mk IV
 {{ 1.2588f, 0.2526f, 0.2765f }}, // Sierra Mk V
 {{ 0.9511f, 0.1938f, 0.2369f }}, // Sierra Mk VII
-{{ 1.8057f, 0.2821f, 0.3423f }}, // Sierra Dual Rect
-{{ 1.0411f, 0.2708f, 0.3367f }}, // Sierra Triple Rect
+{{ 1.7986f, 0.2749f, 0.3511f }}, // Sierra Dual Rect
+{{ 1.0411f, 0.2708f, 0.3709f }}, // Sierra Triple Rect
 {{ 1.2203f, 0.4542f, 1.0000f }}, // Sierra Single Rect
-{{ 2.2817f, 0.8239f, 0.3453f }}, // Sierra Road King
+{{ 2.2817f, 0.8239f, 0.3687f }}, // Sierra Road King
 {{ 1.0086f, 0.4227f, 0.3435f }}, // Sierra Roadster
 {{ 1.0560f, 0.3190f, 0.3384f }}, // Striped 3
 {{ 0.4668f, 0.3520f, 1.0000f }}, // Black Stripe 120
 {{ 0.9457f, 0.5169f, 0.3774f }}, // Rapture 101
 {{ 1.1413f, 0.3894f, 1.0000f }}, // Archway 50
 {{ 0.8114f, 0.2476f, 0.2603f }}, // Revelator 120
-{{ 0.7362f, 0.2208f, 0.3516f }}, // Powerplant II
-{{ 1.3153f, 0.1921f, 0.2228f }}, // Herbalist
+{{ 0.7362f, 0.2208f, 0.3412f }}, // Powerplant II
+{{ 1.3153f, 0.1921f, 0.2244f }}, // Herbalist
 {{ 0.8175f, 0.5966f, 0.4043f }}, // Grandstand 40
 {{ 1.2277f, 0.3145f, 1.0000f }}, // Blackhole HT60
 {{ 0.8375f, 0.4325f, 0.3382f }}, // Pacific PT100
-{{ 1.6275f, 0.3075f, 1.0000f }}, // Pitfighter
+{{ 1.6275f, 0.2885f, 1.0000f }}, // Pitfighter
 {{ 1.9640f, 0.4082f, 1.0000f }}, // Frankenhead
 {{ 1.8201f, 5.2743f, 1.0000f }}, // Steel RG100
 {{ 0.3723f, 0.5006f, 1.0000f }}, // Solaris T
@@ -74,7 +74,7 @@
 {{ 1.4342f, 0.8167f, 1.0000f }}, // Wildcat Lynx
 {{ 1.5330f, 0.5265f, 1.0000f }}, // Countess 40
 {{ 0.8510f, 0.5923f, 0.3718f }}, // Lancer GH100
-{{ 0.7681f, 0.3683f, 0.3245f }}, // Freeman BE
+{{ 0.7681f, 0.3683f, 0.4201f }}, // Freeman BE
 {{ 1.0753f, 0.4975f, 0.3268f }}, // Solo 100
 {{ 1.4160f, 1.0000f, 1.0000f }}, // Brownline '62
 {{ 0.3760f, 1.0000f, 1.0000f }}, // Canyon Vibro '64
@@ -96,7 +96,7 @@
 {{ 0.2590f, 0.2368f, 1.0000f }}, // Quickrod
 {{ 0.3861f, 0.3910f, 1.0000f }}, // Shadow Stealth
 {{ 2.4697f, 0.3093f, 0.3844f }}, // Invader 100
-{{ 0.2604f, 0.3253f, 1.0000f }}, // Overlord 4
+{{ 0.2604f, 0.3084f, 1.0000f }}, // Overlord 4
 {{ 0.4353f, 0.3228f, 1.0000f }}, // Precision Djent
 {{ 0.5107f, 1.0000f, 1.0000f }}, // Petite Studio
 {{ 0.4882f, 1.0000f, 1.0000f }}, // Champion '57

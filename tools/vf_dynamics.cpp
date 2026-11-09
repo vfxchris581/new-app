@@ -11,6 +11,7 @@
 //   vf_dynamics amp "<model name>" <channel> <gain> [master]
 #include "vf/dsp/AmpVoice.h"
 #include "vf/dsp/Biquad.h"
+#include "vf/fx/Registry.h"
 #if VF_WITH_NAM
  #include "vf/nam/NamEngine.h"
 #endif
@@ -126,6 +127,41 @@ static void measure (const char* label, const Proc& proc, double fs)
     std::printf (" | sustain decay %5.1f dB/s\n", d);
 }
 
+
+/** Pedal fingerprint: small-signal EQ (re 1 kHz), small-signal gain, THD vs level, even/odd balance. */
+static void measurePedal (const char* label, const Proc& proc, double fs)
+{
+    auto tone = [&] (double f, float amp, double seconds)
+    {
+        std::vector<float> x (static_cast<size_t> (seconds * fs));
+        for (size_t i = 0; i < x.size(); ++i) x[i] = amp * static_cast<float> (std::sin (2.0 * kPi * f * static_cast<double> (i) / fs));
+        proc (x.data(), static_cast<int> (x.size()));
+        return x;
+    };
+    auto bin = [&] (const std::vector<float>& y, double f)
+    {
+        double re = 0, im = 0; size_t a = y.size() / 2;
+        for (size_t i = a; i < y.size(); ++i) { const double ph = 2.0 * kPi * f * static_cast<double> (i) / fs; re += y[i] * std::cos (ph); im += y[i] * std::sin (ph); }
+        return 2.0 * std::sqrt (re * re + im * im) / static_cast<double> (y.size() - a);
+    };
+    const float small = std::pow (10.0f, -50.0f / 20.0f);
+    const double ref = bin (tone (1000.0, small, 0.3), 1000.0);
+    std::printf ("%-28s gain %5.1f dB | EQ:", label, 20.0 * std::log10 (ref / small));
+    for (double f : { 100.0, 200.0, 400.0, 700.0, 2000.0, 4000.0, 8000.0 })
+        std::printf (" %g:%5.1f", f, 20.0 * std::log10 (bin (tone (f, small, 0.3), f) / ref));
+    std::printf (" | THD@220:");
+    for (float db : { -40.0f, -30.0f, -20.0f, -10.0f })
+    {
+        auto y = tone (220.0, std::pow (10.0f, db / 20.0f), 0.4);
+        const double f1 = bin (y, 220.0);
+        double h = 0, ev = 0, od = 0;
+        for (int k = 2; k <= 9; ++k) { const double a = bin (y, 220.0 * k); h += a * a; (k % 2 ? od : ev) += a * a; }
+        std::printf (" %3.0f:%5.1f%%", db, 100.0 * std::sqrt (h) / f1);
+        if (db == -20.0f) std::printf ("(e/o %4.1f dB, out %5.1f)", 10.0 * std::log10 ((ev + 1e-20) / (od + 1e-20)), 20.0 * std::log10 (f1 + 1e-12));
+    }
+    std::printf ("\n");
+}
+
 int main (int argc, char** argv)
 {
     if (argc < 3) { std::printf ("usage: vf_dynamics nam <file> [label] | amp <model> <channel> <gain> [master]\n"); return 2; }
@@ -141,10 +177,41 @@ int main (int argc, char** argv)
         std::vector<float> warm (4096, 0.0f);
         for (int i = 0; i < 4; ++i) e.process (warm.data(), 4096);
         Proc proc = [&e] (float* s, int n) { for (int i = 0; i < n; i += 4096) e.process (s + i, std::min (4096, n - i)); };
-        measure (argc > 3 ? argv[3] : argv[2], proc, 48000.0);
+        if (argc > 4 && std::string (argv[4]) == "pedal") measurePedal (argv[3], proc, 48000.0);
+        else measure (argc > 3 ? argv[3] : argv[2], proc, 48000.0);
         return 0;
     }
 #endif
+    if (mode == "fx")
+    {
+        // vf_dynamics fx <type-id> Name=value ...
+        const int t = vf::fx::findEffectType (argv[2]);
+        if (t < 0) { std::printf ("unknown effect %s\n", argv[2]); return 1; }
+        auto fx = vf::fx::effectTypes()[static_cast<size_t> (t)].create();
+        fx->prepare (48000.0, 4096);
+        std::string label = argv[2];
+        for (int a = 3; a < argc; ++a)
+        {
+            std::string kv = argv[a];
+            const auto eq = kv.find ('=');
+            for (int p = 0; p < fx->params().count; ++p)
+                if (kv.substr (0, eq) == fx->params().p[static_cast<size_t> (p)].name) fx->setParam (p, std::stof (kv.substr (eq + 1)));
+            label += " " + kv;
+        }
+        std::vector<float> r (4096);
+        Proc proc = [&] (float* x, int n)
+        {
+            fx->reset();
+            for (int i = 0; i < n; i += 4096)
+            {
+                const int m = std::min (4096, n - i);
+                std::copy (x + i, x + i + m, r.begin());
+                fx->process (x + i, r.data(), m);
+            }
+        };
+        measurePedal (label.c_str(), proc, 48000.0);
+        return 0;
+    }
     if (mode == "amp")
     {
         int model = -1;

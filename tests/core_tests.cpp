@@ -300,6 +300,48 @@ int main()
         }
     });
 
+    test ("High-gain palm mutes keep their pick attack (not over-compressed)", [&]
+    {
+        // Low-E palm-mute chugs (8ths, ~160 bpm). "Punch" = onset peak over the chug body.
+        // Captures of real high-gain heads (5150, 6505+, JCM2000, JVM, Laney GH100, Mark IV,
+        // Splawn) measure 3.5-7 dB here; earlier versions of some models sat at 2-3 dB and
+        // sounded squashed. Every lead/high-gain channel must stay in a real amp's range.
+        const double rate = fs;
+        std::vector<float> chug (static_cast<size_t> (10 * 0.1875 * rate + 0.3 * rate), 0.0f);
+        for (int c = 0; c < 10; ++c)
+            for (size_t i = 0; i < static_cast<size_t> (0.1875 * rate); ++i)
+            {
+                const double t = static_cast<double> (i) / rate;
+                double v = 0.0;
+                for (int h = 1; h <= 12; ++h) v += std::sin (2.0 * 3.14159265358979 * 82.41 * h * t + h) / (h * (1.0 + 0.15 * h * h * t * 30.0));
+                chug[static_cast<size_t> (c * 0.1875 * rate) + i] += static_cast<float> (v * std::exp (-t / 0.07) * (1.0 - std::exp (-t / 0.0015)) * 0.06);
+            }
+        auto db = [] (double x) { return 20.0 * std::log10 (x + 1e-12); };
+        int measured = 0;
+        for (const auto& v : allVariants())
+        {
+            const auto& spec = M::getAmpModel (v.model);
+            const auto cat = spec.category;
+            const bool highGain = cat == M::AmpCategory::AmericanHighGain || cat == M::AmpCategory::ModernMetal || cat == M::AmpCategory::BritishHighGain;
+            if (! highGain || spec.power.solidState || v.channel != spec.numChannels - 1) continue;
+            AmpSettings s; s.model = v.model; s.channel = v.channel; s.gain = 6.0f;
+            const auto out = runAmp (s, chug, rate);
+            double punch = 0.0;
+            for (int c = 2; c < 10; ++c)
+            {
+                const size_t t0 = static_cast<size_t> (c * 0.1875 * rate);
+                float pk = 0.0f; double body = 0.0; size_t nb = 0;
+                for (size_t i = t0; i < t0 + static_cast<size_t> (0.02 * rate); ++i) pk = std::max (pk, std::fabs (out[i]));
+                for (size_t i = t0 + static_cast<size_t> (0.04 * rate); i < t0 + static_cast<size_t> (0.08 * rate); ++i) { body += static_cast<double> (out[i]) * out[i]; ++nb; }
+                punch += db (pk) - db (std::sqrt (body / static_cast<double> (nb)));
+            }
+            punch /= 8.0;
+            ++measured;
+            check (punch > 3.5 && punch < 12.0, v.label + " palm-mute punch " + std::to_string (punch) + " dB");
+        }
+        check (measured >= 20, "measured the high-gain channels");
+    });
+
     test ("Every model and channel sounds distinct", [&]
     {
         // Two fingerprints per channel voicing:
