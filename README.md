@@ -34,9 +34,19 @@ By Viridian Audio Works.
   the EQ knobs shape it, Master sets its level.
 
   ![NAM mode](docs/images/ui-nam.png)
-- **Cabinet section:** 7 built-in cabinets with 3 mic types (dynamic, ribbon, condenser), mic
-  position and distance; or load **WAV/AIFF impulse responses** into slots A and B with blend,
-  phase invert and true stereo (A left / B right); plus low cut, high cut and a stereo room.
+- **Cab Lab (cabinets and mics):** **35 cabinets**. That is 20 4x12s and 12 2x12s, heavy on
+  high-gain metal cabs (Rectifier-, 5150-, 6505-, Diezel-, ENGL-, Krank- and Uberkab-style), plus
+  1x12s and a 4x10. Some cabs have mixed speakers.
+  - **Two mics you place with the mouse:** on any speaker, from the dust cap to the cone edge, in
+    front of the cab or behind it, 0–30 cm away and up to 60° off-axis.
+  - **10 mic types**, each with level control; mic B adds a phase flip. Time Align fixes two-mic
+    comb filtering, and a live frequency-response curve shows the result.
+  - **Room mics in 18 environments:** studios in five sizes, rooms, chambers and outdoor spaces.
+    Room distance is adjustable. Full list: [docs/CAB_CATALOG.md](docs/CAB_CATALOG.md).
+  - Or load **WAV/AIFF impulse responses** into slots A and B, with blend, phase invert and true
+    stereo. Low cut and high cut work in both modes.
+
+  ![Mic placement](docs/images/ui-cab-mics.png)
 
   ![IR mode](docs/images/ui-ir.png)
 - **107 effects** in 9 categories, all original DSP: 26 drives/fuzzes/boosts (2x oversampled),

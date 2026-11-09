@@ -41,6 +41,20 @@ then exercises duplicate / change type / remove, runs audio, and checks the
 session round trip. It also drags a block across the pedalboard with
 synthesized mouse events and renders the UI.
 
+## Manual checklist (Cab Lab: cabinets, mics, rooms)
+
+- [ ] Click a CAB block: the mic placement view opens. Drag mic A across a speaker: centre = brighter, edge = darker (the curve follows).
+- [ ] Mouse wheel over a mic moves it closer/further; the side view shows it; dragging there sets distance (left/right) and angle (up/down).
+- [ ] Turn mic B on, put it further back: the mix sounds phasey (comb); TIME ALIGN fixes it.
+- [ ] BACK view on an open-back cab: a rear mic sounds darker and thinner mixed with the front until PHASE is flipped.
+- [ ] Rear mic on a closed-back 4x12 sounds muffled and boomy.
+- [ ] Every mic type sounds different (dynamic bite, ribbon darkness, condenser air...).
+- [ ] Mixed cabs (4x12 Uber Mix, 2x12 Cream Mix, 2x12 Boutique Open): different speakers sound different.
+- [ ] Cab menu is grouped 4x12 / 2x12 / 1x12 & 4x10; hovering shows what inspired each cab.
+- [ ] Room environments: turn ROOM up; each space sounds different (booth tight, scoring stage huge, stairwell long, canyon echo, open field dry); DIST moves the room mics back.
+- [ ] Dragging mics or changing rooms while playing never clicks.
+- [ ] Save/reload: mic positions (including which side of the cone), room and cab are restored.
+
 ## Manual checklist (Phase 4: signal chain and effects)
 
 **Pedalboard**

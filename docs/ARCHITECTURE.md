@@ -251,6 +251,31 @@ footswitch, change/duplicate/remove). Amps open the amp head and cabs the cab
 panel. The lane mixer (split mode, A/B level and pan) appears when the chain
 is split.
 
+## 7b. Cab Lab: cabinets, mic placement and rooms (between Phases 4 and 5)
+
+- **Cabinets** (`dsp/Cabinet.h`): 35 parametric cabs. Each one has box properties (low cut,
+  resonance, open or closed back, size bloom) and a speaker voice (mid, presence, break-up,
+  roll-off). In mixed cabs the diagonal speakers use a second voice. The tests require every cab
+  to differ from every other one by at least 0.7 dB on average.
+- **Mics** (`dsp/CabMics.h`): two mics, each with speaker, cone position, distance, off-axis
+  angle, front or back, type (10 types), level and polarity. The physics modelled:
+  - arrival time (two mics comb-filter, and Time Align removes it);
+  - bleed from the other speakers when a mic is backed off;
+  - rear polarity and closed-back muffling.
+
+  All delays are smoothed, so mics can be dragged while playing.
+- **Rooms** (`dsp/RoomEnvironment.h`): 18 environments.
+  - A spaced room-mic pair gets image-source early reflections, up to third order, keeping the
+    strongest 28 per mic.
+  - The late tail is an FDN sized to the room. Its level is set from a generated energy table,
+    which the tests check against the code.
+  - Outdoor spaces open the box up: ground bounce, house wall, street walls, focused canyon
+    walls, scattering trees.
+  - Changing the room crossfades reflection sets and retunes the tail, so it never clicks.
+- **UI** (`ui/CabRoom.*`): front/back cab views with draggable mics, a side view, per-mic
+  controls, the room environment, and a live response curve computed by a message-thread copy of
+  the DSP.
+
 ## 8. Project directory structure
 
 ```
