@@ -6,19 +6,28 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Only macOS builds unless the repo variable BUILD_ALL is set to "true".
+  # Which platforms to build comes from the repo variable BUILD_TARGETS (comma list of
+  # Linux, macOS, Windows). Unset means macOS only.
   plan:
     runs-on: ubuntu-24.04
     outputs:
       targets: ${{ steps.pick.outputs.targets }}
     steps:
       - id: pick
+        env:
+          TARGETS: ${{ vars.BUILD_TARGETS || 'macOS' }}
         run: |
-          if [ "${{ vars.BUILD_ALL }}" = "true" ]; then
-            echo 'targets=[{"name":"Linux","os":"ubuntu-24.04","generator":"Ninja"},{"name":"macOS","os":"macos-15","generator":"Ninja"},{"name":"Windows","os":"windows-2022","generator":"Visual Studio 17 2022"}]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'targets=[{"name":"macOS","os":"macos-15","generator":"Ninja"}]' >> "$GITHUB_OUTPUT"
-          fi
+          json="["; sep=""
+          for t in ${TARGETS//,/ }; do
+            case "$t" in
+              Linux)   e='{"name":"Linux","os":"ubuntu-24.04","generator":"Ninja"}' ;;
+              macOS)   e='{"name":"macOS","os":"macos-15","generator":"Ninja"}' ;;
+              Windows) e='{"name":"Windows","os":"windows-2022","generator":"Visual Studio 17 2022"}' ;;
+              *) echo "Unknown target: $t"; exit 1 ;;
+            esac
+            json="$json$sep$e"; sep=","
+          done
+          echo "targets=$json]" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
