@@ -6,22 +6,28 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Only macOS builds unless the repo variable BUILD_ALL is set to "true".
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      targets: ${{ steps.pick.outputs.targets }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ vars.BUILD_ALL }}" = "true" ]; then
+            echo 'targets=[{"name":"Linux","os":"ubuntu-24.04","generator":"Ninja"},{"name":"macOS","os":"macos-15","generator":"Ninja"},{"name":"Windows","os":"windows-2022","generator":"Visual Studio 17 2022"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'targets=[{"name":"macOS","os":"macos-15","generator":"Ninja"}]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: plan
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Linux
-            os: ubuntu-24.04
-            generator: Ninja
-          - name: macOS
-            os: macos-15       # pinned: macos-latest jobs sat unassigned (macos-14 retired late 2026)
-            generator: Ninja
-          - name: Windows
-            os: windows-2022
-            generator: Visual Studio 17 2022
+        include: ${{ fromJSON(needs.plan.outputs.targets) }}
 
     steps:
       - uses: actions/checkout@v4
