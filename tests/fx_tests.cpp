@@ -477,6 +477,56 @@ int main()
 
     //==========================================================================
     // Behaviour
+    test ("drive pedals: level-matched at default settings (switching one on never drops the level)", [&]
+    {
+        // Firmly picked held note; loudness K-weighted (60 Hz HP + 4 dB shelf above 1.5 kHz) so
+        // bass-cutting pedals are judged like the ear does. At their default knobs every drive,
+        // fuzz and booster sits a little above bypass, within a few dB of each other.
+        const double fs = 48000.0;
+        std::vector<float> note (static_cast<size_t> (1.2 * fs));
+        double m = 0.0;
+        for (size_t i = 0; i < note.size(); ++i)
+        {
+            const double t = static_cast<double> (i) / fs;
+            double v = 0.0;
+            for (int h = 1; h <= 10; ++h) v += std::sin (2.0 * 3.14159265358979 * 110.0 * h * t + h) / h * std::exp (-t * (0.6 + 0.25 * h));
+            note[i] = static_cast<float> (v * (1.0 - std::exp (-t / 0.002)));
+            m = std::max (m, std::fabs (v));
+        }
+        for (auto& v : note) v = static_cast<float> (v * 0.25 / m);
+        auto loudness = [&] (std::vector<float> y)
+        {
+            vf::dsp::Biquad hp, sh;
+            hp.setCoeffs (vf::dsp::BiquadCoeffs::highPass (fs, 60.0, 0.5));
+            sh.setCoeffs (vf::dsp::BiquadCoeffs::highShelf (fs, 1500.0, 0.7, 4.0));
+            double e = 0.0; size_t n = 0;
+            for (size_t i = 0; i < y.size(); ++i)
+            {
+                const float k = sh.process (hp.process (y[i]));
+                if (i >= static_cast<size_t> (0.1 * fs) && i < static_cast<size_t> (1.0 * fs)) { e += static_cast<double> (k) * k; ++n; }
+            }
+            return 10.0 * std::log10 (e / static_cast<double> (n));
+        };
+        const double dry = loudness (note);
+        int count = 0;
+        for (const auto& t : effectTypes())
+        {
+            if (t.category != FxCategory::Drive) continue;
+            auto fx = t.create();
+            fx->prepare (fs, 4096);
+            std::vector<float> l = note, r = note;
+            for (size_t i = 0; i < l.size(); i += 4096)
+            {
+                const int k = static_cast<int> (std::min<size_t> (4096, l.size() - i));
+                fx->process (l.data() + i, r.data() + i, k);
+            }
+            const double diff = loudness (l) - dry;
+            ++count;
+            check (diff > 0.5 && diff < 7.0, t.name + " default level vs bypass " + std::to_string (diff) + " dB");
+        }
+        check (count >= 20, "all drive pedals measured");
+    });
+
     test ("oversampler 2x: passband unity, images and aliases suppressed", [&]
     {
         Oversampler2x os;

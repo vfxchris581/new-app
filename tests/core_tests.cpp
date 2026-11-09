@@ -342,6 +342,46 @@ int main()
         check (measured >= 20, "measured the high-gain channels");
     });
 
+    test ("High-gain channels sustain a held note like a real amp", [&]
+    {
+        // A2 held note (fundamental fading ~7 dB/s like a real string), picked at -24 dBFS peak,
+        // gain 6. Captures of real heads (5150, 6505+, Mark IV, JVM, Laney GH100, JCM2000,
+        // Splawn) are 2 to 10 dB down after 3 s; a clean amp is ~21 dB down. Earlier versions
+        // had channels at 12-24 dB down - the note "died" while the real amp still sang.
+        const double rate = fs;
+        std::vector<float> note (static_cast<size_t> (3.2 * rate));
+        double m = 0.0;
+        for (size_t i = 0; i < note.size(); ++i)
+        {
+            const double t = static_cast<double> (i) / rate;
+            double v = 0.0;
+            for (int h = 1; h <= 10; ++h) v += std::sin (2.0 * 3.14159265358979 * 110.0 * h * t + h) / h * std::exp (-t * (0.6 + 0.25 * h));
+            note[i] = static_cast<float> (v * (1.0 - std::exp (-t / 0.002)));
+            m = std::max (m, std::fabs (v));
+        }
+        for (auto& v : note) v = static_cast<float> (v * 0.063 / m);
+        auto windowDb = [&] (const std::vector<float>& y, double t)
+        {
+            double e = 0.0; size_t n = 0;
+            for (size_t i = static_cast<size_t> ((t - 0.05) * rate); i < static_cast<size_t> ((t + 0.05) * rate); ++i) { e += static_cast<double> (y[i]) * y[i]; ++n; }
+            return 10.0 * std::log10 (e / static_cast<double> (n) + 1e-20);
+        };
+        int measured = 0;
+        for (const auto& v : allVariants())
+        {
+            const auto& spec = M::getAmpModel (v.model);
+            const auto cat = spec.category;
+            const bool highGain = cat == M::AmpCategory::AmericanHighGain || cat == M::AmpCategory::ModernMetal || cat == M::AmpCategory::BritishHighGain;
+            if (! highGain || v.channel != spec.numChannels - 1) continue;
+            AmpSettings s; s.model = v.model; s.channel = v.channel; s.gain = 6.0f;
+            const auto out = runAmp (s, note, rate);
+            const double drop = windowDb (out, 3.0) - windowDb (out, 0.25);
+            ++measured;
+            check (drop > -11.0, v.label + " held note after 3 s " + std::to_string (drop) + " dB");
+        }
+        check (measured >= 20, "measured the high-gain channels");
+    });
+
     test ("Every model and channel sounds distinct", [&]
     {
         // Two fingerprints per channel voicing:

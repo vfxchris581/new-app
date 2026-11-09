@@ -280,11 +280,14 @@ private:
 
         if (force || controlChanged (s.gain, active.gain))
         {
-            // Audio-taper pot: most of the useful range in the upper half, like the real control.
+            // Audio-taper pot like the real control (two decades: about -16 dB at 6), so held
+            // notes stay in saturation and sustain like a real amp. Below halfway the high-gain
+            // (4-5 stage) channels fall away faster, so low settings still give rhythm crunch
+            // rather than fuzz; five-stage channels are a touch steeper overall.
             const float g = s.gain / 10.0f;
-            // High-gain channels use a steeper pot law (one decade per extra stage) so low settings give rhythm crunch, not fuzz.
-            const float decades = ch.numStages >= 5 ? 4.0f : (ch.numStages == 4 ? 3.0f : 2.0f);
-            const float taper = (std::pow (10.0f, decades * g) - 1.0f) / (std::pow (10.0f, decades) - 1.0f);
+            const float decades = ch.numStages >= 5 ? 3.5f : 2.0f;
+            float taper = (std::pow (10.0f, decades * g) - 1.0f) / (std::pow (10.0f, decades) - 1.0f);
+            if (ch.numStages >= 4 && g < 0.5f) taper *= (g / 0.5f) * (g / 0.5f);
             const float minGain = dbToGain (ch.gainPotMinDb);
             const float value = minGain + (1.0f - minGain) * taper;
             if (force) potGain.snap (value); else potGain.setTarget (value);

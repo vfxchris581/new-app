@@ -128,6 +128,61 @@ static void measure (const char* label, const Proc& proc, double fs)
 }
 
 
+/** A held note (A2 + harmonics) with the decay of a real electric string: the
+    fundamental falls ~7 dB/s, upper harmonics faster. */
+static std::vector<float> heldNote (double fs, float peak, double seconds)
+{
+    std::vector<float> x (static_cast<size_t> (seconds * fs));
+    for (size_t i = 0; i < x.size(); ++i)
+    {
+        const double t = static_cast<double> (i) / fs;
+        double v = 0.0;
+        for (int h = 1; h <= 10; ++h) v += std::sin (2.0 * kPi * 110.0 * h * t + h) / h * std::exp (-t * (0.6 + 0.25 * h));
+        x[i] = static_cast<float> (v * (1.0 - std::exp (-t / 0.002)));
+    }
+    float m = 0.0f;
+    for (float v : x) m = std::max (m, std::fabs (v));
+    for (auto& v : x) v *= peak / m;
+    return x;
+}
+
+/** Sustain profile: output level (100 ms RMS) at 1/2/3/4/5 s relative to 0.25 s. */
+static std::vector<double> sustainProfile (const Proc& proc, double fs, float peakDb, double* startDb = nullptr)
+{
+    auto x = heldNote (fs, std::pow (10.0f, peakDb / 20.0f), 5.2);
+    proc (x.data(), static_cast<int> (x.size()));
+    const double ref = rmsDb (x, fs, 0.2, 0.3);
+    if (startDb != nullptr) *startDb = ref;
+    std::vector<double> r;
+    for (double t : { 1.0, 2.0, 3.0, 4.0, 5.0 }) r.push_back (rmsDb (x, fs, t - 0.05, t + 0.05) - ref);
+    return r;
+}
+
+static void printSustain (const char* label, const Proc& proc, double fs)
+{
+    std::printf ("%-40s", label);
+    for (float pk : { -12.0f, -24.0f })
+    {
+        double st = 0;
+        auto r = sustainProfile (proc, fs, pk, &st);
+        std::printf (" | in%4.0f out%6.1f:", pk, st);
+        for (double v : r) std::printf ("%6.1f", v);
+    }
+    std::printf ("\n");
+}
+
+/** Loudness of a held note (K-weighted, 0.1-1.0 s), so pedals that cut bass are judged like the ear does. */
+static double noteLoudness (const Proc& proc, double fs, float peakDb)
+{
+    auto x = heldNote (fs, std::pow (10.0f, peakDb / 20.0f), 1.2);
+    proc (x.data(), static_cast<int> (x.size()));
+    vf::dsp::Biquad hp, sh;
+    hp.setCoeffs (vf::dsp::BiquadCoeffs::highPass (fs, 60.0, 0.5));
+    sh.setCoeffs (vf::dsp::BiquadCoeffs::highShelf (fs, 1500.0, 0.7, 4.0));
+    for (auto& v : x) v = sh.process (hp.process (v));
+    return rmsDb (x, fs, 0.1, 1.0);
+}
+
 /** Pedal fingerprint: small-signal EQ (re 1 kHz), small-signal gain, THD vs level, even/odd balance. */
 static void measurePedal (const char* label, const Proc& proc, double fs)
 {
@@ -162,6 +217,34 @@ static void measurePedal (const char* label, const Proc& proc, double fs)
     std::printf ("\n");
 }
 
+/** The amp voice at 4x like the plugin, fed and read at 48 kHz. */
+static Proc ampProc (int model, int channel, float gain, float master)
+{
+    struct St { vf::dsp::AmpVoice amp; std::vector<float> up = std::vector<float> (4096 * 4); vf::dsp::Biquad aa1, aa2, d1, d2; };
+    auto st = std::make_shared<St>();
+    st->amp.prepare (192000.0, 4096 * 4);
+    vf::dsp::AmpSettings s;
+    s.model = model; s.channel = channel; s.gain = gain; s.master = master;
+    st->amp.setSettings (s);
+    for (auto* b : { &st->aa1, &st->d1 }) b->setCoeffs (vf::dsp::BiquadCoeffs::lowPass (192000.0, 20000.0, 0.54));
+    for (auto* b : { &st->aa2, &st->d2 }) b->setCoeffs (vf::dsp::BiquadCoeffs::lowPass (192000.0, 20000.0, 1.31));
+    Proc proc = [st] (float* x, int n)
+    {
+        auto& up = st->up;
+        for (int i0 = 0; i0 < n; i0 += 4096)
+        {
+            const int m = std::min (4096, n - i0);
+            for (int i = 0; i < m * 4; ++i) up[static_cast<size_t> (i)] = st->aa2.process (st->aa1.process (i % 4 == 0 ? 4.0f * x[i0 + i / 4] : 0.0f));
+            st->amp.process (up.data(), m * 4);
+            for (int i = 0; i < m * 4; ++i) up[static_cast<size_t> (i)] = st->d2.process (st->d1.process (up[static_cast<size_t> (i)]));
+            for (int i = 0; i < m; ++i) x[i0 + i] = up[static_cast<size_t> (i * 4)];
+        }
+    };
+    std::vector<float> warm (48000, 0.0f);
+    proc (warm.data(), 48000);
+    return proc;
+}
+
 int main (int argc, char** argv)
 {
     if (argc < 3) { std::printf ("usage: vf_dynamics nam <file> [label] | amp <model> <channel> <gain> [master]\n"); return 2; }
@@ -178,6 +261,7 @@ int main (int argc, char** argv)
         for (int i = 0; i < 4; ++i) e.process (warm.data(), 4096);
         Proc proc = [&e] (float* s, int n) { for (int i = 0; i < n; i += 4096) e.process (s + i, std::min (4096, n - i)); };
         if (argc > 4 && std::string (argv[4]) == "pedal") measurePedal (argv[3], proc, 48000.0);
+        else if (argc > 4 && std::string (argv[4]) == "sustain") printSustain (argv[3], proc, 48000.0);
         else measure (argc > 3 ? argv[3] : argv[2], proc, 48000.0);
         return 0;
     }
@@ -190,9 +274,11 @@ int main (int argc, char** argv)
         auto fx = vf::fx::effectTypes()[static_cast<size_t> (t)].create();
         fx->prepare (48000.0, 4096);
         std::string label = argv[2];
+        bool sustain = false;
         for (int a = 3; a < argc; ++a)
         {
             std::string kv = argv[a];
+            if (kv == "sustain") { sustain = true; continue; }
             const auto eq = kv.find ('=');
             for (int p = 0; p < fx->params().count; ++p)
                 if (kv.substr (0, eq) == fx->params().p[static_cast<size_t> (p)].name) fx->setParam (p, std::stof (kv.substr (eq + 1)));
@@ -209,7 +295,8 @@ int main (int argc, char** argv)
                 fx->process (x + i, r.data(), m);
             }
         };
-        measurePedal (label.c_str(), proc, 48000.0);
+        if (sustain) printSustain (label.c_str(), proc, 48000.0);
+        else measurePedal (label.c_str(), proc, 48000.0);
         return 0;
     }
     if (mode == "amp")
@@ -218,32 +305,75 @@ int main (int argc, char** argv)
         for (int m = 0; m < vf::models::numAmpModels(); ++m)
             if (std::strcmp (vf::models::getAmpModel (m).name, argv[2]) == 0) model = m;
         if (model < 0) { std::printf ("unknown model %s\n", argv[2]); return 1; }
-        // run the voice at 4x like the plugin; feed/measure at 48 kHz via zero-order hold + averaging
-        auto amp = std::make_shared<vf::dsp::AmpVoice>();
-        amp->prepare (192000.0, 4096 * 4);
-        vf::dsp::AmpSettings s;
-        s.model = model; s.channel = std::atoi (argv[3]); s.gain = static_cast<float> (std::atof (argv[4]));
-        if (argc > 5) s.master = static_cast<float> (std::atof (argv[5]));
-        amp->setSettings (s);
-        std::vector<float> up (4096 * 4);
-        vf::dsp::Biquad aa1, aa2, d1, d2;
-        aa1.setCoeffs (vf::dsp::BiquadCoeffs::lowPass (192000.0, 20000.0, 0.54)); aa2.setCoeffs (vf::dsp::BiquadCoeffs::lowPass (192000.0, 20000.0, 1.31));
-        d1.setCoeffs (vf::dsp::BiquadCoeffs::lowPass (192000.0, 20000.0, 0.54)); d2.setCoeffs (vf::dsp::BiquadCoeffs::lowPass (192000.0, 20000.0, 1.31));
-        Proc proc = [&] (float* x, int n)
-        {
-            for (int i0 = 0; i0 < n; i0 += 4096)
-            {
-                const int m = std::min (4096, n - i0);
-                for (int i = 0; i < m * 4; ++i) up[static_cast<size_t> (i)] = aa2.process (aa1.process (i % 4 == 0 ? 4.0f * x[i0 + i / 4] : 0.0f));
-                amp->process (up.data(), m * 4);
-                for (int i = 0; i < m * 4; ++i) up[static_cast<size_t> (i)] = d2.process (d1.process (up[static_cast<size_t> (i)]));
-                for (int i = 0; i < m; ++i) x[i0 + i] = up[static_cast<size_t> (i * 4)];
-            }
-        };
-        std::vector<float> warm (48000, 0.0f);
-        proc (warm.data(), 48000);
+        auto proc = ampProc (model, std::atoi (argv[3]), static_cast<float> (std::atof (argv[4])), argc > 5 ? static_cast<float> (std::atof (argv[5])) : 5.0f);
         std::string label = std::string (argv[2]) + " ch" + argv[3] + " g" + argv[4];
-        measure (label.c_str(), proc, 48000.0);
+        if (argc > 6 && std::string (argv[6]) == "sustain") printSustain (label.c_str(), proc, 48000.0);
+        else measure (label.c_str(), proc, 48000.0);
+        return 0;
+    }
+    if (mode == "amps-sustain")
+    {
+        // vf_dynamics amps-sustain <gain>: every model and channel
+        const float g = static_cast<float> (std::atof (argv[2]));
+        for (int m = 0; m < vf::models::numAmpModels(); ++m)
+        {
+            const auto& spec = vf::models::getAmpModel (m);
+            for (int c = 0; c < spec.numChannels; ++c)
+            {
+                auto proc = ampProc (m, c, g, 5.0f);
+                std::string label = std::string (spec.name) + " / " + spec.channels[static_cast<size_t> (c)].name;
+                printSustain (label.c_str(), proc, 48000.0);
+            }
+        }
+        return 0;
+    }
+    if (mode == "fx-level")
+    {
+        // drives at default settings: loudness change vs the dry guitar (LU) for a soft and a firm note
+        const Proc dry = [] (float*, int) {};
+        const double d12 = noteLoudness (dry, 48000.0, -12.0f), d24 = noteLoudness (dry, 48000.0, -24.0f);
+        for (const auto& t : vf::fx::effectTypes())
+        {
+            if (t.category != vf::fx::FxCategory::Drive) continue;
+            auto fx = t.create();
+            fx->prepare (48000.0, 4096);
+            std::vector<float> r (4096);
+            Proc proc = [&] (float* x, int n)
+            {
+                fx->reset();
+                for (int i = 0; i < n; i += 4096)
+                {
+                    const int m = std::min (4096, n - i);
+                    std::copy (x + i, x + i + m, r.begin());
+                    fx->process (x + i, r.data(), m);
+                }
+            };
+            std::printf ("%-24s %6.1f %6.1f\n", t.name.c_str(), noteLoudness (proc, 48000.0, -12.0f) - d12, noteLoudness (proc, 48000.0, -24.0f) - d24);
+        }
+        return 0;
+    }
+    if (mode == "fx-sustain")
+    {
+        // every effect at its default settings: level change at the note start and how the note decays
+        printSustain ("(dry reference)", [] (float*, int) {}, 48000.0);
+        for (const auto& t : vf::fx::effectTypes())
+        {
+            auto fx = t.create();
+            fx->prepare (48000.0, 4096);
+            std::vector<float> r (4096);
+            Proc proc = [&] (float* x, int n)
+            {
+                fx->reset();
+                for (int i = 0; i < n; i += 4096)
+                {
+                    const int m = std::min (4096, n - i);
+                    std::copy (x + i, x + i + m, r.begin());
+                    fx->process (x + i, r.data(), m);
+                    for (int k = 0; k < m; ++k) x[i + k] = 0.5f * (x[i + k] + r[static_cast<size_t> (k)]);
+                }
+            };
+            printSustain ((std::string (vf::fx::categoryName (t.category)).substr (0, 5) + " " + t.name).c_str(), proc, 48000.0);
+        }
         return 0;
     }
     return 2;

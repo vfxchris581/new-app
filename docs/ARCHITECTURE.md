@@ -112,9 +112,10 @@ all 12 categories (list: `docs/AMP_CATALOG.md`), including the Mesa Mark
 series (cascaded lead stages after an early tone stack, post-gain 5-band
 graphic EQ) and Rectifier family, and the Marshall collection. Additions
 to the engine: up to 5 preamp stages, per-channel tone stacks (separate
-clean/rhythm EQs as on the real amps), a gain-pot law that steepens one
-decade per extra stage (so high-gain channels start at rhythm crunch rather
-than fuzz), and a saturating grid bias shift. Level calibration is
+clean/rhythm EQs as on the real amps), an audio-taper gain pot (two decades,
+like a real "A" pot; 3.5 for the five-stage channels so their low settings
+are rhythm crunch rather than fuzz — tuned so held notes sustain like
+captures of real high-gain heads), and a saturating grid bias shift. Level calibration is
 precomputed at build time (`tools/vf_calibrate`), guarded by a test.
 
 "Genuinely distinct" is enforced by an automated test: each channel is
