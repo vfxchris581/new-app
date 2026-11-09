@@ -36,6 +36,8 @@ juce_add_binary_data(ViridianForgeAssets
 target_sources(ViridianForge PRIVATE
     source/PluginProcessor.cpp
     source/PluginEditor.cpp
+    source/engine/AmpBlock.cpp
+    source/engine/CabBlock.cpp
     source/ui/ViridianLookAndFeel.cpp
     source/ui/Widgets.cpp
     source/ui/Panels.cpp)

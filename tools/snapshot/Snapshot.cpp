@@ -93,7 +93,7 @@ int main (int argc, char* argv[])
     for (int i = 0; i < 100; ++i)
     {
         const auto ns = proc.getNamStatus();
-        if (ns.state != ViridianForgeProcessor::LoadState::Loading) break;
+        if (ns.state != LoadState::Loading) break;
         juce::Thread::sleep (20);
     }
     double rms = 0.0;

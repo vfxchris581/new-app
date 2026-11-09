@@ -117,4 +117,48 @@ inline constexpr std::array<ParamSpec, 36> parameterSpecs {{
     { ParamID::cabStereo,     "Stereo",         ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   3 },
 }};
 
+//==============================================================================
+// Phase 4: second amp/cab, effect slots and the parallel-lane mixer.
+
+/** Parameters owned by an amp block. Amp 1 uses these IDs as-is (compatible with
+    earlier sessions); Amp 2 uses them prefixed with "amp2_". */
+inline constexpr std::array<const char*, 20> ampParamIds {
+    ParamID::ampModel, ParamID::channel, ParamID::boost, ParamID::gain, ParamID::bass, ParamID::middle,
+    ParamID::treble, ParamID::presence, ParamID::resonance, ParamID::master, ParamID::bright, ParamID::deep,
+    ParamID::tubeSwap, ParamID::ampSource, ParamID::geqOn, ParamID::geq80, ParamID::geq240, ParamID::geq750,
+    ParamID::geq2200, ParamID::geq6600 };
+
+/** Parameters owned by a cab block; Cab 2 uses them prefixed with "cab2_". */
+inline constexpr std::array<const char*, 12> cabParamIds {
+    ParamID::cabEnabled, ParamID::cabModel, ParamID::micPosition, ParamID::micDistance, ParamID::cabSource,
+    ParamID::micType, ParamID::irBlend, ParamID::irPhaseB, ParamID::cabLowCut, ParamID::cabHighCut,
+    ParamID::room, ParamID::cabStereo };
+
+inline constexpr const char* amp2Prefix = "amp2_";
+inline constexpr const char* cab2Prefix = "cab2_";
+
+inline const ParamSpec* findParamSpec (const char* id) noexcept
+{
+    for (const auto& p : parameterSpecs)
+    {
+        const char* a = p.id; const char* b = id;
+        while (*a != 0 && *a == *b) { ++a; ++b; }
+        if (*a == 0 && *b == 0) return &p;
+    }
+    return nullptr;
+}
+
+namespace ParamID
+{
+    // Effect slot k (1-based in IDs): "fx3_on", "fx3_p1" .. "fx3_p8"
+    inline constexpr const char* splitMode  = "splitMode";
+    inline constexpr const char* laneALevel = "laneALevel";
+    inline constexpr const char* laneBLevel = "laneBLevel";
+    inline constexpr const char* laneAPan   = "laneAPan";
+    inline constexpr const char* laneBPan   = "laneBPan";
+}
+
+inline constexpr int kFxSlotParams = 8;
+inline constexpr std::array<const char*, 2> splitModeNames { "Y Split", "Left / Right" };
+
 } // namespace vf

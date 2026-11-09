@@ -2,6 +2,7 @@
 // behaviour, real-time allocation discipline and CPU cost.
 
 #include "vf/fx/Registry.h"
+#include "vf/graph/Engine.h"
 
 #include <algorithm>
 #include <atomic>
@@ -13,16 +14,17 @@
 #include <new>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 //==============================================================================
 // Allocation tracking: any heap allocation while `gTrackAlloc` is set is counted.
-static std::atomic<bool> gTrackAlloc { false };
+static thread_local bool gTrackAlloc = false; // per thread: only the "audio" thread under test counts
 static std::atomic<int> gAllocs { 0 };
 
 void* operator new (std::size_t n)
 {
-    if (gTrackAlloc.load (std::memory_order_relaxed)) gAllocs.fetch_add (1);
+    if (gTrackAlloc) gAllocs.fetch_add (1);
     if (void* p = std::malloc (n == 0 ? 1 : n)) return p;
     throw std::bad_alloc();
 }
@@ -194,6 +196,57 @@ Stereo render (const FxType& type, const std::vector<std::pair<int, float>>& set
 // generic "each parameter changes the sound" sweep.
 bool sequencedEffect (const std::string& id) { return id == "delay.looper" || id == "creative.freeze"; }
 
+} // namespace
+
+
+//==============================================================================
+// Graph test helpers
+namespace
+{
+std::atomic<int> gLiveProbes { 0 };
+
+/** Test block: y = x * gain + offset, optional pure delay (reported latency), counts calls/resets. */
+class Probe : public Effect
+{
+public:
+    Probe (float g, float o = 0.0f, int delay = 0) : gain (g), offset (o), lat (delay) { ++gLiveProbes; }
+    ~Probe() override { --gLiveProbes; }
+    void prepare (double rate, int block) override { fs = rate; maxBlock = block; line.assign (static_cast<size_t> (lat + 1), 0.0f); lineR = line; reset(); }
+    void reset() override { ++resets; std::fill (line.begin(), line.end(), 0.0f); std::fill (lineR.begin(), lineR.end(), 0.0f); pos = 0; }
+    int latencySamples() const noexcept override { return lat; }
+    void process (float* l, float* r, int n) noexcept override
+    {
+        ++calls;
+        for (int i = 0; i < n; ++i)
+        {
+            float a = l[i] * gain + offset, b = r[i] * gain + offset;
+            if (lat > 0)
+            {
+                const size_t w = static_cast<size_t> (pos), rd = static_cast<size_t> ((pos + 1) % (lat + 1));
+                line[w] = a; lineR[w] = b; a = line[rd]; b = lineR[rd];
+                pos = (pos + 1) % (lat + 1);
+            }
+            l[i] = a; r[i] = b;
+        }
+    }
+    float gain, offset;
+    int lat, calls = 0, resets = 0, pos = 0;
+    std::vector<float> line, lineR;
+};
+
+std::unique_ptr<vf::graph::Plan> planOf (const vf::graph::ChainModel& m, std::array<std::shared_ptr<Effect>, vf::graph::kNumKeys>& blocks)
+{
+    return vf::graph::Plan::build (m, [&] (int k) { return blocks[static_cast<size_t> (k)]; });
+}
+
+void runGraph (vf::graph::Engine& e, Stereo& io, int block = 256)
+{
+    for (size_t pos = 0; pos < io.size(); pos += static_cast<size_t> (block))
+    {
+        const int n = static_cast<int> (std::min<size_t> (static_cast<size_t> (block), io.size() - pos));
+        e.process (io.l.data() + pos, io.r.data() + pos, n);
+    }
+}
 } // namespace
 
 //==============================================================================
@@ -641,6 +694,220 @@ int main()
         run (*vol, s);
         const double halfDb = 20.0 * std::log10 (rms (s.l, 12000) / (0.5 / std::sqrt (2.0)));
         check (halfDb < -12.0 && halfDb > -26.0, "log taper: half travel is about -20 dB (" + std::to_string (halfDb) + ")");
+    });
+
+
+    //==========================================================================
+    // Signal chain model + graph engine
+    using namespace vf::graph;
+
+    test ("chain model: insert, move, remove, split folding, serialise round trip", [&]
+    {
+        auto m = ChainModel::defaultChain();
+        check (m.serialise() == "pre=amp1,cab1|a=|b=|post=|split=0", "default chain is Amp 1 -> Cab 1 (" + m.serialise() + ")");
+        check (m.insert (0, Section::Pre, 0), "insert fx1 first");
+        check (m.insert (1, Section::Pre, 99), "insert fx2 at end (index clamped)");
+        check (m.pre == std::vector<int> ({ 0, kAmp1, kCab1, 1 }), "order after inserts");
+        m.insert (1, Section::Pre, 1);
+        check (m.pre == std::vector<int> ({ 0, 1, kAmp1, kCab1 }), "move fx2 before the amp");
+        m.insert (0, Section::Pre, 3);
+        check (m.pre == std::vector<int> ({ 1, kAmp1, 0, kCab1 }), "moving later in the same list lands where dropped");
+        check (! m.insert (kAmp2, Section::LaneA, 0), "lanes refuse blocks while unsplit");
+        m.setSplit (true);
+        check (m.insert (kAmp2, Section::LaneB, 0) && m.insert (kCab2, Section::LaneB, 1), "amp 2 + cab 2 into lane B");
+        check (m.insert (kCab1, Section::LaneA, 0) && m.insert (5, Section::Post, 0), "cab 1 to lane A, fx6 to post");
+        const auto text = m.serialise();
+        ChainModel back;
+        check (ChainModel::parse (text, back) && back.serialise() == text, "round trip: " + text);
+        m.remove (kAmp2);
+        check (! m.contains (kAmp2) && m.laneB == std::vector<int> ({ kCab2 }), "remove");
+        m.setSplit (false);
+        check (! m.split && m.laneA.empty() && m.laneB.empty() && m.post.empty() && m.pre.size() == 6, "unsplit folds lanes and post into pre, keeping every block");
+        ChainModel junk;
+        check (ChainModel::parse ("pre=fx1,fx1,bogus,amp9,fx25,cab2|split=0", junk) && junk.pre == std::vector<int> ({ 0, kCab2 }), "parse drops duplicates and unknown keys");
+        check (! ChainModel::parse ("garbage", junk), "malformed text rejected");
+        ChainModel lanesNoSplit;
+        check (ChainModel::parse ("pre=fx1|a=fx2|b=fx3|post=fx4|split=0", lanesNoSplit) && lanesNoSplit.pre.size() == 4, "lanes in an unsplit chain fold into pre");
+        for (int k = 0; k < kNumKeys; ++k) check (keyFromName (keyName (k)) == k, "key name round trip " + keyName (k));
+    });
+
+    test ("graph: serial order, Y split + merge levels/pan, L/R split, latency compensation", [&]
+    {
+        std::array<std::shared_ptr<Effect>, kNumKeys> blocks {};
+        blocks[0] = std::make_shared<Probe> (1.0f, 1.0f);   // +1
+        blocks[1] = std::make_shared<Probe> (2.0f);         // x2
+        blocks[2] = std::make_shared<Probe> (3.0f);
+        blocks[3] = std::make_shared<Probe> (1.0f, 0.0f, 37); // pure 37-sample delay
+        for (auto& b : blocks) if (b) b->prepare (fs, 256);
+
+        Engine e;
+        e.prepare (fs, 256);
+        ChainModel m;
+        m.pre = { 0, 1 };
+        e.publish (planOf (m, blocks));
+        Stereo io (512);
+        std::fill (io.l.begin(), io.l.end(), 1.0f); std::fill (io.r.begin(), io.r.end(), 1.0f);
+        runGraph (e, io);
+        check (std::fabs (io.l[300] - 4.0f) < 1e-5f, "(1 + 1) * 2 = 4: blocks run in chain order");
+
+        m = {}; m.pre = { 1, 0 };
+        Engine e2; e2.prepare (fs, 256); e2.publish (planOf (m, blocks));
+        Stereo io2 (512); std::fill (io2.l.begin(), io2.l.end(), 1.0f); std::fill (io2.r.begin(), io2.r.end(), 1.0f);
+        runGraph (e2, io2);
+        check (std::fabs (io2.l[300] - 3.0f) < 1e-5f, "reordered: 1 * 2 + 1 = 3");
+
+        // Y split: lane A x2, lane B x3, merged centre-panned at unity -> 5
+        m = {}; m.split = true; m.laneA = { 1 }; m.laneB = { 2 };
+        Engine y; y.prepare (fs, 256); y.publish (planOf (m, blocks));
+        Stereo ys (4096); std::fill (ys.l.begin(), ys.l.end(), 1.0f); std::fill (ys.r.begin(), ys.r.end(), 1.0f);
+        runGraph (y, ys);
+        check (std::fabs (ys.l[4000] - 5.0f) < 1e-3f && std::fabs (ys.r[4000] - 5.0f) < 1e-3f, "Y split sums lanes (" + std::to_string (ys.l[4000]) + ")");
+        y.setMerge (-6.0206f, -60.0f, 0.0f, 0.0f);
+        Stereo ys2 (4096); std::fill (ys2.l.begin(), ys2.l.end(), 1.0f); std::fill (ys2.r.begin(), ys2.r.end(), 1.0f);
+        runGraph (y, ys2);
+        check (std::fabs (ys2.l[4000] - 1.0f) < 1e-3f, "lane A at -6 dB, lane B muted -> 1.0 (" + std::to_string (ys2.l[4000]) + ")");
+        y.setMerge (0.0f, -60.0f, -1.0f, 0.0f);
+        Stereo ys3 (4096); std::fill (ys3.l.begin(), ys3.l.end(), 1.0f); std::fill (ys3.r.begin(), ys3.r.end(), 1.0f);
+        runGraph (y, ys3);
+        check (std::fabs (ys3.r[4000]) < 1e-4f && std::fabs (ys3.l[4000] - 2.0f * 1.41421356f) < 1e-3f, "lane A hard left (equal-power +3 dB)");
+
+        // L/R split: lane A gets left only, lane B right only.
+        y.setMerge (0.0f, 0.0f, -1.0f, 1.0f);
+        y.setSplitMode (Engine::SplitLeftRight);
+        Stereo lr (4096); std::fill (lr.l.begin(), lr.l.end(), 1.0f); // right input silent
+        runGraph (y, lr);
+        check (std::fabs (lr.r[4000]) < 1e-4f && lr.l[4000] > 2.0f, "L/R split routes left input to lane A only");
+
+        // Latency compensation: lane A has a 37-sample block; lane B is dry. An impulse must stay one impulse.
+        m = {}; m.split = true; m.laneA = { 3 }; m.laneB = {};
+        Engine lc; lc.prepare (fs, 256); lc.publish (planOf (m, blocks));
+        Stereo imp (1024); imp.l[100] = imp.r[100] = 1.0f;
+        runGraph (lc, imp);
+        int nonzero = 0, at = -1;
+        for (size_t i = 0; i < imp.size(); ++i) if (std::fabs (imp.l[i]) > 1e-6f) { ++nonzero; at = static_cast<int> (i); }
+        check (nonzero == 1 && at == 137, "parallel lanes are latency-aligned (impulse at " + std::to_string (at) + ", " + std::to_string (nonzero) + " taps)");
+        check (lc.latencySamples() == 37, "plan reports the lane latency");
+    });
+
+    test ("graph: bypass ramps without clicks, skips fully bypassed blocks, resets on re-engage", [&]
+    {
+        std::array<std::shared_ptr<Effect>, kNumKeys> blocks {};
+        auto probe = std::make_shared<Probe> (-1.0f); // polarity flip: worst case for a hard switch
+        blocks[4] = probe;
+        probe->prepare (fs, 256);
+        Engine e; e.prepare (fs, 256);
+        ChainModel m; m.pre = { 4 };
+        e.publish (planOf (m, blocks));
+        Stereo s = sine (100.0, fs, 0.5, 0.5f);
+        Stereo o = s;
+        // toggle bypass every 2400 samples
+        for (size_t pos = 0; pos < o.size(); pos += 240)
+        {
+            e.setEnabled (4, (pos / 2400) % 2 == 0);
+            e.process (o.l.data() + pos, o.r.data() + pos, static_cast<int> (std::min<size_t> (240, o.size() - pos)));
+        }
+        float maxStep = 0.0f;
+        for (size_t i = 1; i < o.size(); ++i) maxStep = std::max (maxStep, std::fabs (o.l[i] - o.l[i - 1]));
+        check (maxStep < 0.02f, "bypass toggles are smooth (max step " + std::to_string (maxStep) + ")");
+        const int callsBefore = probe->calls;
+        e.setEnabled (4, false);
+        Stereo q (4800);
+        runGraph (e, q, 240);
+        const int resetsBefore = probe->resets;
+        runGraph (e, q, 240);
+        check (probe->calls - callsBefore <= 3, "fully bypassed block is not processed (CPU saved)");
+        e.setEnabled (4, true);
+        runGraph (e, q, 240);
+        check (probe->resets == resetsBefore + 1, "re-engaging after full bypass resets the block once");
+    });
+
+    test ("graph: topology swaps fade (no clicks), free retired plans only on the message thread", [&]
+    {
+        std::array<std::shared_ptr<Effect>, kNumKeys> blocks {};
+        blocks[0] = std::make_shared<Probe> (-1.0f);
+        blocks[1] = std::make_shared<Probe> (0.5f);
+        for (auto& b : blocks) if (b) b->prepare (fs, 256);
+        const int liveBefore = gLiveProbes.load();
+        Engine e; e.prepare (fs, 256);
+        ChainModel a; a.pre = { 0 };
+        ChainModel b; b.pre = { 1 };
+        e.publish (planOf (a, blocks));
+        Stereo s = sine (200.0, fs, 1.0, 0.5f);
+        for (size_t pos = 0; pos < s.size(); pos += 256)
+        {
+            if (pos % 4096 == 0) { e.publish (planOf ((pos / 4096) % 2 ? a : b, blocks)); e.collectGarbage(); }
+            e.process (s.l.data() + pos, s.r.data() + pos, static_cast<int> (std::min<size_t> (256, s.size() - pos)));
+        }
+        float maxStep = 0.0f;
+        for (size_t i = 1; i < s.size(); ++i) maxStep = std::max (maxStep, std::fabs (s.l[i] - s.l[i - 1]));
+        check (maxStep < 0.05f, "plan swaps never jump (max step " + std::to_string (maxStep) + ")");
+        // drop the message-thread references to block 1, swap it out, and check it is freed only by collectGarbage
+        blocks[1].reset();
+        ChainModel none;
+        e.publish (planOf (none, blocks));
+        Stereo q (2048);
+        runGraph (e, q);
+        e.publish (planOf (none, blocks));
+        runGraph (e, q);
+        check (gLiveProbes.load() == liveBefore, "retired block still alive until garbage collection");
+        e.collectGarbage();
+        check (gLiveProbes.load() == liveBefore - 1, "collectGarbage frees the retired block");
+    });
+
+    test ("graph: real effects, two parallel lanes, no allocation and finite output while plans churn", [&]
+    {
+        std::array<std::shared_ptr<Effect>, kNumKeys> blocks {};
+        for (int k = 0; k < kNumFxSlots; ++k)
+        {
+            const auto& t = types[static_cast<size_t> ((k * 37 + 5) % static_cast<int> (types.size()))];
+            blocks[static_cast<size_t> (k)] = std::shared_ptr<Effect> (t.create());
+            blocks[static_cast<size_t> (k)]->prepare (fs, 256);
+        }
+        Engine e; e.prepare (fs, 256);
+        std::atomic<bool> stop { false };
+        std::vector<std::unique_ptr<Plan>> plans;
+        for (int v = 0; v < 6; ++v)
+        {
+            ChainModel m; m.split = v % 2 == 0;
+            for (int k = 0; k < kNumFxSlots; ++k)
+            {
+                const int where = (k + v) % (m.split ? 4 : 1);
+                m.list (static_cast<Section> (where)).push_back (k);
+            }
+            plans.push_back (planOf (m, blocks));
+        }
+        e.publish (planOf (ChainModel::defaultChain(), blocks));
+        // message thread: keep publishing new topologies and collecting garbage
+        std::thread ui ([&]
+        {
+            int v = 0;
+            while (! stop.load())
+            {
+                ChainModel m; m.split = v % 2 == 0;
+                for (int k = 0; k < kNumFxSlots; k += 1 + v % 3) m.list (static_cast<Section> (m.split ? (k + v) % 4 : 0)).push_back (k);
+                e.publish (planOf (m, blocks));
+                e.collectGarbage();
+                ++v;
+                std::this_thread::sleep_for (std::chrono::milliseconds (3));
+            }
+        });
+        Stereo s = phrase (fs, 3.0);
+        gAllocs = 0;
+        gTrackAlloc = true;
+        bool ok = true;
+        for (size_t pos = 0; pos < s.size(); pos += 256)
+        {
+            e.setEnabled (static_cast<int> (pos / 256) % kNumFxSlots, (pos / 256) % 3 != 0);
+            e.process (s.l.data() + pos, s.r.data() + pos, static_cast<int> (std::min<size_t> (256, s.size() - pos)));
+        }
+        gTrackAlloc = false;
+        stop = true;
+        ui.join();
+        e.collectGarbage();
+        const int audioAllocs = gAllocs.load();
+        ok = finite (s);
+        check (ok, "output finite");
+        check (audioAllocs == 0, "Engine::process never allocates, even while plans churn (" + std::to_string (audioAllocs) + ")");
     });
 
     std::printf ("\n%d checks, %d failures\n", checks, failures);

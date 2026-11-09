@@ -2,30 +2,34 @@
 
 #include <JuceHeader.h>
 #include "vf/Parameters.h"
-#include "vf/dsp/AmpVoice.h"
-#include "vf/dsp/Cabinet.h"
 #include "vf/dsp/NoiseGate.h"
-#include "vf/dsp/ToneShaper.h"
 #include "vf/dsp/Tuner.h"
-
-#if VF_WITH_NAM
- #include "vf/nam/NamEngine.h"
-#endif
+#include "vf/fx/Registry.h"
+#include "vf/graph/Engine.h"
+#include "engine/AmpBlock.h"
+#include "engine/CabBlock.h"
 
 /** Audio processor shared by the Standalone app, VST3 and AU builds.
 
     Signal flow:
-      input -> tuner tap -> noise gate -> AMP SOURCE (4x oversampled modeled amp,
-      or a NAM capture with drive + post-EQ) -> CAB SECTION (built-in cab with
-      mic type, IR A, or IR A+B blend / stereo) -> low/high cut -> room -> output
+      input -> trim -> tuner tap -> noise gate -> SIGNAL CHAIN -> output level
+
+    The signal chain is a graph of blocks (up to 24 effects, Amp 1/2, Cab 1/2)
+    laid out as PRE -> [LANE A || LANE B] -> POST, edited on the message thread
+    (ChainModel) and run by vf::graph::Engine on the audio thread.
+
+    Every effect slot has fixed, automatable host parameters (on/off + 8 generic
+    controls whose meaning and text follow the effect loaded in the slot), so
+    automation and presets survive moving blocks around.
 
     Real-time rules followed in processBlock():
-      - no allocation (all buffers sized in prepareToPlay)
-      - no locks, no file I/O (NAM/IR files load on background threads)
+      - no allocation, no locks, no file I/O
+      - topology changes arrive as immutable plans through an atomic pointer
       - parameters read through cached atomics
-      - meters/tuner hand data to the UI through atomics and a lock-free FIFO
 */
-class ViridianForgeProcessor : public juce::AudioProcessor
+class ViridianForgeProcessor : public juce::AudioProcessor,
+                               public juce::ChangeBroadcaster,
+                               private juce::Timer
 {
 public:
     ViridianForgeProcessor();
@@ -45,7 +49,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.05; }
+    double getTailLengthSeconds() const override { return 10.0; } // long reverbs/delays
 
     // Phase 5 replaces this with the full preset system.
     int getNumPrograms() override { return 1; }
@@ -57,6 +61,9 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    using LoadState = ::LoadState;
+    using FileSlotStatus = ::FileSlotStatus;
+
     // UI access
     juce::AudioProcessorValueTreeState& getState() noexcept { return apvts; }
     float popInputPeak() noexcept  { return inputPeak.exchange (0.0f); }
@@ -64,33 +71,52 @@ public:
     double getCpuLoad() const noexcept { return loadMeasurer.getLoadAsProportion(); }
     vf::dsp::TunerReading analyseTuner() { return tuner.analyse(); } // message thread only
     bool isGateOpen() const noexcept { return gateOpen.load(); }
-
-    /** Non-automatable UI setting stored with the session. */
     juce::Value getThemeValue() { return apvts.state.getPropertyAsValue ("theme", nullptr); }
 
     //==============================================================================
-    // Files: NAM captures and impulse responses (call from the message thread)
-    enum class LoadState { Empty, Loading, Ready, Failed };
+    // Signal chain editing (message thread). Every edit sends a change message.
+    using ChainModel = vf::graph::ChainModel;
+    using Section = vf::graph::Section;
 
-    struct FileSlotStatus
-    {
-        LoadState state = LoadState::Empty;
-        juce::String path, description, error;
-    };
+    const ChainModel& getChain() const noexcept { return chain; }
+    /** Effect type (index into vf::fx::effectTypes()) in a slot, or -1 if empty. */
+    int getSlotType (int slot) const noexcept;
+    /** Adds an effect of the given type at a position; returns its slot or -1 if all slots are used. */
+    int addEffect (int typeIndex, Section section, int index);
+    /** Swaps the effect in a slot for another type (parameters reset to the new type's defaults). */
+    void changeEffectType (int slot, int typeIndex);
+    /** Copies an effect (type and settings) into a free slot right after it; returns the new slot or -1. */
+    int duplicateEffect (int slot);
+    /** Adds/moves any block (effect slot, amp or cab). */
+    void moveBlock (int key, Section section, int index);
+    /** Removes a block; an effect slot is emptied. */
+    void removeBlock (int key);
+    void setSplit (bool on);
+    int freeSlotCount() const noexcept;
 
-    void loadNamModel (const juce::File& file);
-    void unloadNamModel();
-    FileSlotStatus getNamStatus() const;
+    /** Host parameter IDs for blocks. */
+    static juce::String slotOnId (int slot)              { return "fx" + juce::String (slot + 1) + "_on"; }
+    static juce::String slotParamId (int slot, int p)    { return "fx" + juce::String (slot + 1) + "_p" + juce::String (p + 1); }
+    static juce::String ampPrefix (int amp)              { return amp == 0 ? juce::String() : juce::String (vf::amp2Prefix); }
+    static juce::String cabPrefix (int cab)              { return cab == 0 ? juce::String() : juce::String (vf::cab2Prefix); }
 
-    void loadImpulseResponse (int slot, const juce::File& file); // slot 0 = A, 1 = B
-    void clearImpulseResponse (int slot);
-    FileSlotStatus getIrStatus (int slot) const;
+    /** Parameter metadata for an effect type (no instance needed). */
+    static const vf::fx::ParamList& typeParams (int typeIndex);
 
-    /** Library folders (created on demand) in the user's application-data directory. */
+    //==============================================================================
+    // Files: NAM captures and impulse responses (message thread)
+    void loadNamModel (const juce::File& file, int amp = 0);
+    void unloadNamModel (int amp = 0);
+    FileSlotStatus getNamStatus (int amp = 0) const;
+
+    void loadImpulseResponse (int slot, const juce::File& file, int cab = 0); // slot 0 = A, 1 = B
+    void clearImpulseResponse (int slot, int cab = 0);
+    FileSlotStatus getIrStatus (int slot, int cab = 0) const;
+
     static juce::File getLibraryFolder (const juce::String& kind); // "NAM" or "IRs"
     static juce::File importIntoLibrary (const juce::File& source, const juce::String& kind);
 
-    /** Message thread, from the editor's timer: frees retired NAM models. */
+    /** Message thread: frees retired plans/NAM models (also runs on an internal timer). */
     void housekeeping();
 
     static bool isNamAvailable() noexcept
@@ -102,75 +128,56 @@ public:
        #endif
     }
 
-    static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
-
 private:
-    struct Settings;
-    void readSettings (Settings&) const noexcept;
-    void processChunk (const float* in, float* outL, float* outR, int numSamples, const Settings&) noexcept;
-    void restoreFilesFromState();
+    juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+    void timerCallback() override { housekeeping(); }
+
+    std::shared_ptr<vf::fx::Effect> createSlotEffect (int slot, int typeIndex);
+    void setSlotParamsToDefaults (int slot, int typeIndex);
+    void commitChain();                 // save to state, build + publish a plan
+    void rebuildFromState();            // after setStateInformation
+    void pushSlotParams() noexcept;     // audio thread
+    void processChunk (const float* in, float* outL, float* outR, int numSamples) noexcept;
+
+    // Declared before apvts: parameter text callbacks read it.
+    struct SlotTypes
+    {
+        std::array<std::atomic<int>, vf::graph::kNumFxSlots> a;
+        SlotTypes() { for (auto& x : a) x.store (-1); }
+        std::atomic<int>& operator[] (size_t i) noexcept { return a[i]; }
+        const std::atomic<int>& operator[] (size_t i) const noexcept { return a[i]; }
+    } slotTypeIndex;
 
     juce::AudioProcessorValueTreeState apvts;
 
     struct Raw
     {
-        std::atomic<float>* inputGain, *gateOn, *gateThresh, *ampModel, *channel, *boost, *gain, *bass, *middle, *treble,
-            *presence, *resonance, *master, *bright, *deep, *tubeSwap, *cabOn, *cabModel, *micPos, *micDist, *outLevel,
-            *ampSource, *geqOn, *geq[5], *cabSource, *micType, *irBlend, *irPhaseB, *cabLowCut, *cabHighCut, *room, *cabStereo;
+        std::atomic<float>* inputGain, *gateOn, *gateThresh, *outLevel, *splitMode, *laneALevel, *laneBLevel, *laneAPan, *laneBPan;
+        std::array<std::atomic<float>*, vf::graph::kNumFxSlots> fxOn;
+        std::array<std::array<std::atomic<float>*, vf::kFxSlotParams>, vf::graph::kNumFxSlots> fxParam;
     } raw {};
 
-    // Amp
-    static constexpr int oversamplingFactorLog2 = 2; // 4x for the nonlinear amp path
-    std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
-    vf::dsp::AmpVoice amp;
-   #if VF_WITH_NAM
-    vf::nam::Engine nam;
-   #endif
-    vf::dsp::ToneShaper namTone;
-    vf::dsp::Biquad namBoostLow, namBoostHigh;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> namDrive { 1.0f }, namLevel { 1.0f };
+    // Blocks
+    std::shared_ptr<AmpBlock> amps[2];
+    std::shared_ptr<CabBlock> cabs[2];
+    std::array<std::shared_ptr<vf::fx::Effect>, vf::graph::kNumFxSlots> slotFx;  // message thread
+    ChainModel chain = ChainModel::defaultChain();
+    vf::graph::Engine engine;
 
     // Front end
     vf::dsp::NoiseGate gate;
     vf::dsp::TunerAnalyser tuner;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inputGain { 1.0f }, outputGain { 1.0f };
 
-    // Cab section
-    vf::dsp::CabinetSim cabinet;
-    juce::dsp::Convolution irA, irB;
-    vf::dsp::Biquad lowCutL, lowCutR, highCutL, highCutR;
-    vf::dsp::RoomAmbience roomL, roomR;
-    juce::SmoothedValue<float> cabMix { 1.0f }, irBlend { 0.5f }, roomAmount { 0.0f };
-    float lastLowCut = -1.0f, lastHighCut = -1.0f;
-
-    // Click-free source switching (fade out -> switch -> fade in)
-    struct SourceSwitch
-    {
-        int active = 0, target = 0;
-        float gain = 1.0f, step = 0.01f;
-        void reset (double rate, int value) { active = target = value; gain = 1.0f; step = static_cast<float> (1.0 / (0.005 * rate)); }
-        float next() noexcept
-        {
-            if (target != active) { gain -= step; if (gain <= 0.0f) { gain = 0.0f; active = target; } }
-            else if (gain < 1.0f) gain = std::min (1.0f, gain + step);
-            return gain;
-        }
-    } ampSwitch, cabSwitch;
-
-    juce::AudioBuffer<float> work; // channels: 0 mono, 1 IR A, 2 IR B, 3 left, 4 right
+    juce::AudioBuffer<float> work; // 0 left, 1 right
     int maxChunk = 512;
     double currentRate = 48000.0;
-
-    // File state (message thread), shared with the loader thread through the lock
-    mutable juce::CriticalSection fileLock;
-    FileSlotStatus namStatus, irStatus[2];
-    std::atomic<bool> irReady[2] { false, false };
-    std::atomic<bool> namReady { false };
-    juce::ThreadPool loader { 1 };
 
     juce::AudioProcessLoadMeasurer loadMeasurer;
     std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f };
     std::atomic<bool> gateOpen { true };
+
+    juce::ThreadPool loader { 1 }; // declared last: destroyed (and drained) first
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ViridianForgeProcessor)
 };
