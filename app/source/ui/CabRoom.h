@@ -27,11 +27,14 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
+    /** Show the front or the back of the cab. */
+    void setView (bool back);
+
     /** Mic currently being edited (0 = A, 1 = B). */
     int getSelectedMic() const noexcept { return selectedMic; }
 
 private:
-    struct MicState { int speaker; float position, distance, angle, theta; bool on; int type; };
+    struct MicState { int speaker; float position, distance, angle, theta; bool on; int type; bool back; };
 
     void timerCallback() override;
     juce::String pid (const char* id) const;
@@ -53,6 +56,7 @@ private:
     void placeMicSide (int m, juce::Point<float> screen);
 
     void drawFront (juce::Graphics&, const VFTheme&);
+    void drawRear (juce::Graphics&, const VFTheme&, juce::Rectangle<float> cabinet, juce::Rectangle<float> baffle);
     void drawSide (juce::Graphics&, const VFTheme&);
     void drawResponse (juce::Graphics&, const VFTheme&);
     void drawMicTop (juce::Graphics&, juce::Point<float> c, float size, juce::Colour colour, const juce::String& label, bool selected, bool on, float tiltDeg, float thetaRad);
@@ -68,9 +72,11 @@ private:
 
     // controls
     juce::Label micALabel, micBLabel, roomLabel;
-    ChoiceBox typeA, typeB;
+    ChoiceBox typeA, typeB, faceA, faceB, environment;
     LabeledKnob levelA, levelB, roomKnob, roomDistKnob;
     LedSwitch micBOnSwitch, phaseB, align, stereo;
+    juce::TextButton frontButton { "FRONT" }, backButton { "BACK" };
+    bool viewBack = false;      // which side of the cab the front view is showing
 
     // live response curve (message-thread mirror of the audio DSP)
     vf::dsp::CabMics preview;

@@ -5,6 +5,7 @@
 #include "vf/dsp/AmpVoice.h"
 #include "vf/dsp/Cabinet.h"
 #include "vf/dsp/CabMics.h"
+#include "vf/dsp/RoomEnvironment.h"
 #include "vf/dsp/NoiseGate.h"
 #include "vf/dsp/Resampler.h"
 #include "vf/dsp/ToneShaper.h"
@@ -739,6 +740,166 @@ int main()
         const int near = firstEcho (0.0f), farAt = firstEcho (1.0f);
         check (near > 100 && near < 200, "close room mic: first reflection after ~3 ms (" + std::to_string (near) + ")");
         check (farAt > near * 3, "far room mic: reflections arrive much later (" + std::to_string (farAt) + ")");
+    });
+
+    test ("Ten microphone types, each with its own response", []
+    {
+        std::vector<std::vector<double>> curves;
+        for (int m = 0; m < static_cast<int> (MicType::count); ++m)
+        {
+            CabinetSim c; c.prepare (48000.0);
+            c.setParams (CabModel::Greenback4x12, 0.3f, 0.2f, static_cast<MicType> (m)); c.update();
+            std::vector<double> curve;
+            bool ok = true;
+            for (double f = 60.0; f < 12000.0; f *= 1.15) { const double v = 20.0 * std::log10 (c.magnitudeAt (f)); ok = ok && std::isfinite (v); curve.push_back (v); }
+            check (ok, std::string (micTypeNames[static_cast<size_t> (m)]) + " response finite");
+            curves.push_back (curve);
+        }
+        for (size_t a = 0; a < curves.size(); ++a)
+            for (size_t b = a + 1; b < curves.size(); ++b)
+            {
+                double d = 0.0;
+                for (size_t k = 0; k < curves[a].size(); ++k) d += std::fabs (curves[a][k] - curves[b][k]);
+                check (d / static_cast<double> (curves[a].size()) > 0.35, std::string (micTypeNames[a]) + " vs " + micTypeNames[b] + " differ ("
+                       + std::to_string (d / static_cast<double> (curves[a].size())) + " dB)");
+            }
+    });
+
+    test ("Mic behind the cab: reversed polarity, darker; closed back is muffled and quiet", []
+    {
+        auto resp = [] (CabModel cab, bool back, double f)
+        {
+            MicSettings m; m.distance = 0.1f; m.back = back;
+            MicSettings off; off.enabled = false;
+            CabMics mics; mics.prepare (48000.0); mics.set (cab, m, off, false);
+            return mics.responseAt (0, f) * std::polar (1.0, 2.0 * kPi * f * static_cast<double> (mics.delaySamples (0)) / 48000.0); // remove travel time
+        };
+        const auto openFront = resp (CabModel::Alnico2x12Open, false, 150.0), openBack = resp (CabModel::Alnico2x12Open, true, 150.0);
+        check (std::real (openFront / openBack) < 0.0, "rear mic is out of polarity with the front mic");
+        check (std::abs (resp (CabModel::Alnico2x12Open, true, 5000.0)) < std::abs (resp (CabModel::Alnico2x12Open, false, 5000.0)) * 0.6, "rear of an open-back cab is darker");
+        const double closedRatio = std::abs (resp (CabModel::V30_4x12, true, 3000.0)) / std::abs (resp (CabModel::V30_4x12, false, 3000.0));
+        check (closedRatio < 0.1, "behind a closed back the highs are mostly gone (" + std::to_string (closedRatio) + ")");
+        check (std::abs (resp (CabModel::V30_4x12, true, 100.0)) < std::abs (resp (CabModel::V30_4x12, false, 100.0)), "closed back is quieter overall");
+
+        // front + rear summed cancel the lows; flipping mic B brings them back
+        MicSettings f; f.distance = 0.1f;
+        MicSettings r = f; r.back = true;
+        CabMics raw; raw.prepare (48000.0); raw.set (CabModel::Alnico2x12Open, f, r, true);
+        MicSettings rf = r; rf.invert = true;
+        CabMics fixed; fixed.prepare (48000.0); fixed.set (CabModel::Alnico2x12Open, f, rf, true);
+        check (std::abs (fixed.monoResponseAt (120.0)) > std::abs (raw.monoResponseAt (120.0)) * 3.0, "Phase on the rear mic restores the low end");
+    });
+
+    test ("Room environments: 18 spaces, physically sensible, click-free, level-matched", []
+    {
+        const double rate = 48000.0;
+        auto impulse = [rate] (int env, float dist, double seconds)
+        {
+            RoomEnvironment r; r.prepare (rate); r.set (env, dist);
+            std::vector<float> out (static_cast<size_t> (seconds * rate));
+            for (size_t i = 0; i < out.size(); ++i) { float l, rr; r.process (i == 0 ? 1.0f : 0.0f, l, rr); out[i] = 0.5f * (l + rr); }
+            return out;
+        };
+        auto energyAfter = [rate] (const std::vector<float>& v, double from, double to)
+        {
+            double e = 0.0;
+            for (size_t i = static_cast<size_t> (from * rate); i < std::min (v.size(), static_cast<size_t> (to * rate)); ++i) e += static_cast<double> (v[i]) * v[i];
+            return e;
+        };
+        auto t20 = [&] (const std::vector<float>& v)
+        {
+            const double total = energyAfter (v, 0.0, 99.0);
+            double acc = total;
+            for (size_t i = 0; i < v.size(); ++i) { acc -= static_cast<double> (v[i]) * v[i]; if (acc < total * 0.01) return static_cast<double> (i) / rate; }
+            return static_cast<double> (v.size()) / rate;
+        };
+        std::vector<std::vector<float>> irs;
+        std::vector<double> levels;
+        for (int e = 0; e < kNumEnvironments; ++e)
+        {
+            const auto& spec = getEnvironmentSpec (static_cast<Environment> (e));
+            auto ir = impulse (e, 0.3f, 4.0);
+            bool finite = true;
+            for (float x : ir) finite = finite && std::isfinite (x) && std::fabs (x) < 4.0f;
+            check (finite, std::string (spec.name) + " finite and bounded");
+            // direct sound arrives first, at distance / c
+            RoomEnvironment r; r.prepare (rate); r.set (e, 0.3f);
+            float first = 1e9f;
+            for (int k = 0; k < r.currentTaps().count; ++k) first = std::min (first, r.currentTaps().left[static_cast<size_t> (k)].delay);
+            const double expect = std::hypot (std::hypot (r.micDistanceMetres(), 0.5), 1.05) / RoomEnvironment::kSpeedOfSound * rate; // pair 0.5 m off-axis, 1.05 m above the speaker
+            check (first > 0.0f && std::fabs (first - expect) < expect * 0.25 + 30.0, std::string (spec.name) + " direct sound at the right time");
+            irs.push_back (ir);
+            // loudness with continuous noise
+            // level with the mics 2 m from the cab in every space
+            RoomEnvironment n; n.prepare (rate); n.set (e, std::min (1.0f, (2.0f - 0.5f) / (spec.maxMicDistanceM - 0.5f)));
+            uint32_t seed = 3u; double sum = 0.0;
+            for (int i = 0; i < 96000; ++i)
+            {
+                seed = seed * 1664525u + 1013904223u;
+                float l, rr; n.process ((static_cast<float> (seed >> 8) / 16777216.0f - 0.5f) * 0.5f, l, rr);
+                if (i > 48000) sum += static_cast<double> (l) * l;
+            }
+            levels.push_back (10.0 * std::log10 (sum / 48000.0 + 1e-20));
+        }
+        const double lo = *std::min_element (levels.begin(), levels.end()), hi = *std::max_element (levels.begin(), levels.end());
+        check (hi - lo < 13.0, "at the same distance every space plays at a similar level (spread " + std::to_string (hi - lo) + " dB)");
+
+        for (int e = 0; e < kNumEnvironments; ++e)
+        {
+            const double m = RoomEnvironment::measureLateEnergy (e), t = RoomEnvironment::kLateEnergy[static_cast<size_t> (e)];
+            check (std::fabs (m - t) <= t * 0.02 + 1e-9, std::string (getEnvironmentSpec (static_cast<Environment> (e)).name) + " late-energy table is up to date");
+        }
+
+        // Five studio sizes: bigger room -> longer decay
+        double prev = 0.0;
+        for (int e = 0; e < 5; ++e)
+        {
+            const double t = t20 (irs[static_cast<size_t> (e)]);
+            check (t > prev, std::string (getEnvironmentSpec (static_cast<Environment> (e)).name) + " decays longer than the smaller studio (" + std::to_string (t) + " s)");
+            prev = t;
+        }
+        // Outdoors: open field has no tail; canyon has a late echo; the stairwell rings longer than the bedroom
+        const auto& field = irs[static_cast<size_t> (Environment::OpenField)];
+        check (energyAfter (field, 0.15, 4.0) < energyAfter (field, 0.0, 0.15) * 1e-4, "open field: direct + ground bounce, no reverb");
+        const auto& canyon = irs[static_cast<size_t> (Environment::Canyon)];
+        auto peakIn = [rate] (const std::vector<float>& v, double from, double to)
+        {
+            float p = 0.0f;
+            for (size_t i = static_cast<size_t> (from * rate); i < std::min (v.size(), static_cast<size_t> (to * rate)); ++i) p = std::max (p, std::fabs (v[i]));
+            return p;
+        };
+        check (peakIn (canyon, 0.30, 0.45) > peakIn (canyon, 0.15, 0.30) * 3.0, "canyon: a distinct echo off the far wall, standing out of the tail");
+        check (t20 (irs[static_cast<size_t> (Environment::Stairwell)]) > t20 (irs[static_cast<size_t> (Environment::Bedroom)]) * 3.0, "stairwell rings far longer than a bedroom");
+
+        // Every space sounds different
+        for (size_t a = 0; a < irs.size(); ++a)
+            for (size_t b = a + 1; b < irs.size(); ++b)
+            {
+                double d = 0.0, ea = 0.0;
+                for (size_t i = 0; i < irs[a].size(); i += 4) { const double x = irs[a][i] - irs[b][i]; d += x * x; ea += static_cast<double> (irs[a][i]) * irs[a][i] + static_cast<double> (irs[b][i]) * irs[b][i]; }
+                check (d / ea > 0.05, std::string (getEnvironmentSpec (static_cast<Environment> (a)).name) + " vs " + getEnvironmentSpec (static_cast<Environment> (b)).name + " differ");
+            }
+
+        // Further back: later and wetter
+        RoomEnvironment nearR; nearR.prepare (rate); nearR.set (static_cast<int> (Environment::LargeStudio), 0.0f);
+        RoomEnvironment farR; farR.prepare (rate); farR.set (static_cast<int> (Environment::LargeStudio), 1.0f);
+        check (farR.micDistanceMetres() > nearR.micDistanceMetres() * 4.0, "Room Distance moves the mics back");
+        const auto irNear = impulse (static_cast<int> (Environment::LargeStudio), 0.0f, 3.0), irFar = impulse (static_cast<int> (Environment::LargeStudio), 1.0f, 3.0);
+        auto earlyShare = [&] (const std::vector<float>& v) { return energyAfter (v, 0.0, 0.03 + 0.001) / energyAfter (v, 0.0, 3.0); };
+        check (earlyShare (irFar) < earlyShare (irNear), "further back the direct sound is a smaller share (wetter)");
+
+        // Dragging the distance / switching rooms while playing never clicks
+        RoomEnvironment drag; drag.prepare (rate); drag.set (0, 0.0f);
+        const auto tone = sine (180.0, rate, 96000, 0.3f);
+        double maxStep = 0.0; float prev2 = 0.0f;
+        for (size_t i = 0; i < tone.size(); ++i)
+        {
+            if (i % 512 == 0) drag.set (static_cast<int> (i / 12000) % kNumEnvironments, static_cast<float> (i % 12000) / 12000.0f);
+            float l, rr; drag.process (tone[i], l, rr);
+            if (i > 1) maxStep = std::max (maxStep, static_cast<double> (std::fabs (l - prev2)));
+            prev2 = l;
+        }
+        check (maxStep < 0.08, "moving room mics / switching spaces is smooth (max step " + std::to_string (maxStep) + ")");
     });
 
     test ("Room ambience widens the image and is dry at zero", []

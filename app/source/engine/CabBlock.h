@@ -6,6 +6,7 @@
 #include "vf/dsp/Biquad.h"
 #include "vf/dsp/Cabinet.h"
 #include "vf/dsp/CabMics.h"
+#include "vf/dsp/RoomEnvironment.h"
 #include "vf/fx/Effect.h"
 
 /** One cabinet in the signal chain: built-in cab miked by one or two placeable
@@ -39,13 +40,13 @@ private:
         std::atomic<float>* cabOn, *cabModel, *micPos, *micDist, *cabSource, *micType, *irBlend, *irPhaseB,
             *cabLowCut, *cabHighCut, *room, *cabStereo,
             *micASpeaker, *micAAngle, *micALevel, *micBOn, *micBSpeaker, *micBPos, *micBDist, *micBAngle,
-            *micBType, *micBLevel, *micBPhase, *micAlign, *roomDist;
+            *micBType, *micBLevel, *micBPhase, *micAlign, *roomDist, *micAFace, *micBFace, *roomEnv;
     } raw {};
 
     vf::dsp::CabMics mics;
     juce::dsp::Convolution irA, irB;
     vf::dsp::Biquad lowCutL, lowCutR, highCutL, highCutR;
-    vf::dsp::RoomAmbience roomL, roomR;
+    vf::dsp::RoomEnvironment roomMics;
     juce::SmoothedValue<float> cabMix { 1.0f }, irBlend { 0.5f }, roomAmount { 0.0f };
     float lastLowCut = -1.0f, lastHighCut = -1.0f;
     bool phaseB = false, stereo = false;

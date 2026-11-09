@@ -20,13 +20,14 @@ CabBlock::CabBlock (juce::AudioProcessorValueTreeState& state, const juce::Strin
     raw.micBOn = get (ParamID::micBOn);         raw.micBSpeaker = get (ParamID::micBSpeaker); raw.micBPos = get (ParamID::micBPos);
     raw.micBDist = get (ParamID::micBDist);     raw.micBAngle = get (ParamID::micBAngle);   raw.micBType = get (ParamID::micBType);
     raw.micBLevel = get (ParamID::micBLevel);   raw.micBPhase = get (ParamID::micBPhase);   raw.micAlign = get (ParamID::micAlign);
-    raw.roomDist = get (ParamID::roomDist);
+    raw.roomDist = get (ParamID::roomDist);    raw.micAFace = get (ParamID::micAFace);     raw.micBFace = get (ParamID::micBFace);
+    raw.roomEnv = get (ParamID::roomEnv);
 }
 
 void CabBlock::updateMics() noexcept
 {
     using namespace vf::dsp;
-    auto micType = [] (std::atomic<float>* v) { return static_cast<MicType> (juce::jlimit (0, 2, juce::roundToInt (v->load()))); };
+    auto micType = [] (std::atomic<float>* v) { return static_cast<MicType> (juce::jlimit (0, static_cast<int> (MicType::count) - 1, juce::roundToInt (v->load()))); };
     MicSettings a, b;
     a.enabled = true;
     a.type = micType (raw.micType);
@@ -35,6 +36,7 @@ void CabBlock::updateMics() noexcept
     a.distance = raw.micDist->load() / 10.0f;
     a.angle = raw.micAAngle->load();
     a.levelDb = raw.micALevel->load();
+    a.back = raw.micAFace->load() > 0.5f;
     b.enabled = raw.micBOn->load() > 0.5f;
     b.type = micType (raw.micBType);
     b.speaker = juce::roundToInt (raw.micBSpeaker->load());
@@ -43,11 +45,10 @@ void CabBlock::updateMics() noexcept
     b.angle = raw.micBAngle->load();
     b.levelDb = raw.micBLevel->load();
     b.invert = raw.micBPhase->load() > 0.5f;
+    b.back = raw.micBFace->load() > 0.5f;
     const auto model = static_cast<CabModel> (juce::jlimit (0, static_cast<int> (CabModel::count) - 1, juce::roundToInt (raw.cabModel->load())));
     mics.set (model, a, b, raw.micAlign->load() > 0.5f);
-    const float roomDistance = raw.roomDist->load() / 10.0f;
-    roomL.setDistance (roomDistance);
-    roomR.setDistance (roomDistance);
+    roomMics.set (juce::roundToInt (raw.roomEnv->load()), raw.roomDist->load() / 10.0f);
 }
 
 int CabBlock::sourceFromParams() const noexcept
@@ -72,8 +73,7 @@ void CabBlock::prepare (double sampleRate, int maxBlockSize)
     const juce::dsp::ProcessSpec mono { sampleRate, static_cast<juce::uint32> (blockSize), 1 };
     irA.prepare (mono);
     irB.prepare (mono);
-    roomL.prepare (sampleRate);
-    roomR.prepare (sampleRate);
+    roomMics.prepare (sampleRate);
     for (auto* b : { &lowCutL, &lowCutR, &highCutL, &highCutR }) b->reset();
     lastLowCut = lastHighCut = -1.0f;
 
@@ -82,7 +82,7 @@ void CabBlock::prepare (double sampleRate, int maxBlockSize)
     irBlend.reset (sampleRate, 0.03);
     irBlend.setCurrentAndTargetValue (raw.irBlend->load() / 10.0f);
     roomAmount.reset (sampleRate, 0.05);
-    roomAmount.setCurrentAndTargetValue (raw.room->load() / 10.0f * 0.8f);
+    roomAmount.setCurrentAndTargetValue (raw.room->load() / 10.0f);
     cabSwitch.reset (sampleRate, sourceFromParams());
     prepared = true;
 }
@@ -93,8 +93,7 @@ void CabBlock::reset()
     irB.reset();
     mics.reset();
     for (auto* b : { &lowCutL, &lowCutR, &highCutL, &highCutR }) b->reset();
-    roomL.prepare (currentRate);
-    roomR.prepare (currentRate);
+    roomMics.reset();
 }
 
 void CabBlock::process (float* l, float* r, int n) noexcept
@@ -104,7 +103,7 @@ void CabBlock::process (float* l, float* r, int n) noexcept
     updateMics();
     cabMix.setTargetValue (raw.cabOn->load() > 0.5f ? 1.0f : 0.0f);
     irBlend.setTargetValue (raw.irBlend->load() / 10.0f);
-    roomAmount.setTargetValue (raw.room->load() / 10.0f * 0.8f);
+    roomAmount.setTargetValue (raw.room->load() / 10.0f);
     cabSwitch.target = sourceFromParams();
     phaseB = raw.irPhaseB->load() > 0.5f;
     stereo = raw.cabStereo->load() > 0.5f;
@@ -179,11 +178,16 @@ void CabBlock::processChunk (float* outL, float* outR, int n) noexcept
         l = highCutL.process (lowCutL.process (l));
         r = highCutR.process (lowCutR.process (r));
 
+        // Room mics: the cab's sound in the chosen space, blended under the close mics.
         const float amt = roomAmount.getNextValue();
-        float l1, r1, l2, r2;
-        roomL.process (l, amt, l1, r1);
-        roomR.process (r, amt, l2, r2);
-        l = l1; r = r2;
+        if (amt > 0.0f || roomAmount.isSmoothing())
+        {
+            float rl, rr;
+            roomMics.process (0.5f * (l + r), rl, rr);
+            l += amt * rl;
+            r += amt * rr;
+        }
+        else roomMics.push (0.5f * (l + r));
 
         // Cab off: click-free crossfade to the raw (uncabbed) signal
         const float mix = cabMix.getNextValue();

@@ -34,6 +34,7 @@ struct MicSettings
     float angle = 0.0f;       // degrees off-axis, 0..kMaxMicAngleDeg
     float levelDb = 0.0f;
     bool invert = false;
+    bool back = false;        // behind the cab instead of in front
 };
 
 class CabMics
@@ -41,6 +42,7 @@ class CabMics
 public:
     static constexpr double kSpeedOfSoundCmPerSec = 34300.0;
     static constexpr int kMaxBleed = 3;
+    static constexpr float kRearPathCm = 14.0f;
 
     void prepare (double sampleRate)
     {
@@ -135,11 +137,12 @@ private:
             const int spk = std::min (std::max (0, s.speaker), geo.speakers - 1);
             m.sim.setParams (cab, s.position, s.distance, s.type);
             m.sim.setPlacement (spk, s.angle);
+            m.sim.setBack (s.back);
             m.sim.update();
 
             // Own speaker: straight-line distance (plus a little for the cone depth).
             const float dcm = std::max (0.0f, std::min (1.0f, s.distance)) * kMaxMicDistanceCm;
-            ownPath[k] = dcm + 1.0f;
+            ownPath[k] = dcm + (s.back ? kRearPathCm : 1.0f);   // behind: the sound also travels the cab depth
 
             // Other speakers: further away and arriving later; negligible right on the grille.
             m.numBleed = 0;
@@ -157,7 +160,10 @@ private:
                 m.targetBleedDelay[static_cast<size_t> (m.numBleed)] = path;   // cm for now
                 ++m.numBleed;
             }
-            m.targetGain = std::pow (10.0f, s.levelDb / 20.0f) * (s.invert ? -1.0f : 1.0f);
+            // Behind the cab the cone moves the other way: the rear mic is out of polarity
+            // (flip it, or use Time Align + Phase); a closed back is also much quieter.
+            const float rear = s.back ? (getCabinetSpec (cab).openBack ? -0.8f : -0.3f) : 1.0f;
+            m.targetGain = std::pow (10.0f, s.levelDb / 20.0f) * (s.invert ? -1.0f : 1.0f) * rear;
         }
         const float common = settings[1].enabled ? std::max (ownPath[0], ownPath[1]) : ownPath[0];
         const float cmToSamples = static_cast<float> (fs / kSpeedOfSoundCmPerSec);

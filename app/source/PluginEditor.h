@@ -23,6 +23,7 @@ public:
     /** Select a chain block for editing (as a click on the pedalboard would). */
     void selectBlock (int key) { pedalboard.select (key); }
     Pedalboard& getPedalboard() noexcept { return pedalboard; }
+    void showCabRear (bool rear) { cabRoom1.setView (rear); cabRoom2.setView (rear); }
 
 private:
     void timerCallback() override;

@@ -49,11 +49,46 @@ inline const CabinetSpec& getCabinetSpec (CabModel m)
 }
 
 /** Microphone families with their characteristic close-mic response. */
-enum class MicType { Dynamic57 = 0, Ribbon121, Condenser, count };
+enum class MicType { Dynamic57 = 0, Ribbon121, Condenser, Dynamic421, Dynamic906, BroadcastRE20, LargeCondenser414,
+                     TubeCondenser47, SmallCondenser84, Ribbon160, count };
 
 inline constexpr std::array<const char*, static_cast<size_t> (MicType::count)> micTypeNames {
-    "Dynamic (57-style)", "Ribbon (121-style)", "Condenser (87-style)"
+    "Dynamic (57-style)", "Ribbon (121-style)", "Condenser (87-style)", "Dynamic (421-style)", "Dynamic (e906-style)",
+    "Broadcast Dynamic (RE20-style)", "Large Condenser (414-style)", "Tube Condenser (U47-style)",
+    "Small Condenser (KM84-style)", "Ribbon (160-style)"
 };
+
+/** How a mic family colours a close-miked speaker. Multipliers are relative to the
+    classic dynamic; dB values are added shelves/peaks. */
+struct MicSpec
+{
+    double roll;          // top-end extension (x rolloff frequency)
+    double presence;      // upper-mid peak depth
+    double proximity;     // close-mic bass boost
+    double breakup;       // cone break-up peak emphasis
+    double presenceHz;    // where its presence peak sits (x speaker presence frequency)
+    double airDb;         // 9 kHz shelf
+    double lowDb;         // 120 Hz shelf (body / weight)
+    double bodyDb;        // 350 Hz peak (warmth vs. boxiness)
+    double offAxis;       // how fast highs fall when angled (1 = cardioid dynamic)
+};
+
+inline const MicSpec& getMicSpec (MicType m)
+{
+    static const std::array<MicSpec, static_cast<size_t> (MicType::count)> specs {{
+        { 1.00, 1.00, 1.00, 1.00, 1.00,  0.0,  0.0,  0.0, 1.00 }, // Dynamic 57: the upper-mid bite reference
+        { 0.72, 0.45, 1.50, 0.50, 1.00, -2.0,  1.0,  0.5, 0.60 }, // Ribbon 121: smooth, dark, big proximity
+        { 1.35, 0.70, 0.70, 1.20, 1.00,  1.5,  0.0,  0.0, 0.80 }, // Condenser 87: extended, open top
+        { 1.15, 0.80, 1.10, 1.00, 0.85,  0.5,  1.5,  1.0, 0.90 }, // Dynamic 421: fuller lows, lower presence
+        { 1.05, 1.20, 0.90, 1.00, 1.10, -0.5, -1.0, -1.0, 0.70 }, // Dynamic e906: focused mids, tight lows
+        { 0.85, 0.50, 0.40, 0.80, 1.00, -1.5,  0.5,  1.0, 0.90 }, // Broadcast RE20: flat, little proximity
+        { 1.30, 0.90, 0.80, 1.10, 1.30,  3.5, -1.0, -0.8, 0.80 }, // Large condenser 414: bright, detailed, lean
+        { 1.10, 0.75, 1.00, 0.90, 0.90,  1.0,  1.5,  1.5, 0.80 }, // Tube condenser 47: warm, thick
+        { 1.45, 0.60, 0.60, 1.20, 1.20,  2.0, -1.5, -0.5, 0.95 }, // Small condenser 84: fast, airy, lean
+        { 0.80, 0.60, 1.20, 0.60, 1.10, -1.0,  0.5,  0.0, 0.70 }, // Ribbon 160: hypercardioid ribbon, focused
+    }};
+    return specs[static_cast<size_t> (m)];
+}
 
 inline constexpr std::array<const char*, static_cast<size_t> (CabModel::count)> cabModelNames {
     "1x12 American Open", "2x12 Alnico Open", "4x10 Tweed Open", "4x12 Greenback", "4x12 V30", "4x12 Modern Metal", "1x12 British Closed"
@@ -134,6 +169,12 @@ public:
         }
     }
 
+    /** Mic in front of the baffle (normal) or behind the cab. */
+    void setBack (bool behind) noexcept
+    {
+        if (behind != back) { back = behind; dirty = true; }
+    }
+
     /** Recompute coefficients if anything changed (cheap; call once per block). */
     void update() noexcept
     {
@@ -149,15 +190,16 @@ public:
         // Off-axis: the mic turns away from the dust cap; highs fall first.
         const double a = std::min (1.0, std::max (0.0, static_cast<double> (angle) / kMaxMicAngleDeg));
 
-        // Mic family: dynamic = classic upper-mid bite; ribbon = smooth, darker, big
-        // proximity effect; condenser = extended top, flatter presence.
-        double micRoll = 1.0, micPresence = 1.0, micProximity = 1.0, micBreakup = 1.0;
-        switch (mic)
+        const auto& ms = getMicSpec (mic);
+        double micRoll = ms.roll, micPresence = ms.presence, micProximity = ms.proximity, micBreakup = ms.breakup;
+
+        // Behind the cab: open back = the cone's rear (darker, the magnet blocks the centre,
+        // more low end); closed back = heard through the panel (heavily muffled, boomy).
+        double backHighDb = 0.0, backLowDb = 0.0;
+        if (back)
         {
-            case MicType::Ribbon121: micRoll = 0.72; micPresence = 0.45; micProximity = 1.5; micBreakup = 0.5; break;
-            case MicType::Condenser: micRoll = 1.35; micPresence = 0.7;  micProximity = 0.7; micBreakup = 1.2; break;
-            case MicType::Dynamic57:
-            case MicType::count:     break;
+            if (c.openBack) { micRoll *= 0.7; micPresence *= 0.45 + 0.4 * p; micBreakup *= 0.5; backHighDb = -4.0; backLowDb = 2.5; }
+            else            { micRoll *= 0.35; micPresence *= 0.15; micBreakup *= 0.1; backHighDb = -14.0; backLowDb = 5.0; }
         }
 
         const double lowCut = c.lowCutHz * (1.0 + 0.25 * d);              // further away: less low end
@@ -165,18 +207,22 @@ public:
         const double rollOff = std::fmin (fs * 0.45, c.rollOffHz * micRoll * (1.0 - 0.45 * p) * (1.0 - 0.15 * d));
         const double presenceDb = c.presenceDb * micPresence * (1.0 - 0.6 * p) * (1.0 - 0.45 * a);
         const double breakupDb = c.breakupDb * micBreakup * (1.0 - 0.8 * p) - 1.5 * d + 0.8 * v;
-        const double offAxisDb = -10.0 * a * a * (mic == MicType::Ribbon121 ? 0.6 : (mic == MicType::Condenser ? 0.8 : 1.0));
+        const double offAxisDb = -10.0 * a * a * ms.offAxis;
 
         filters[0].setCoeffs (BiquadCoeffs::highPass (fs, lowCut, c.openBack ? 0.6 : 0.85));
         filters[1].setCoeffs (BiquadCoeffs::peak (fs, c.resonanceHz, c.resonanceQ, c.openBack ? c.resonanceDb * 0.7 : c.resonanceDb));
         filters[2].setCoeffs (BiquadCoeffs::lowShelf (fs, 180.0, 0.7, proximityDb));
         filters[3].setCoeffs (BiquadCoeffs::peak (fs, c.midHz, c.midQ, c.midDb + 0.4 * v));
-        filters[4].setCoeffs (BiquadCoeffs::peak (fs, c.presenceHz * (1.0 + 0.04 * v), 1.1, presenceDb));
+        filters[4].setCoeffs (BiquadCoeffs::peak (fs, c.presenceHz * ms.presenceHz * (1.0 + 0.04 * v), 1.1, presenceDb));
         filters[5].setCoeffs (BiquadCoeffs::peak (fs, c.breakupHz * (1.0 - 0.05 * v), 2.2, breakupDb));
         filters[6].setCoeffs (BiquadCoeffs::lowPass (fs, rollOff, 0.54));   // 4th-order roll-off
         filters[7].setCoeffs (BiquadCoeffs::lowPass (fs, rollOff, 1.31));
         filters[8].setCoeffs (BiquadCoeffs::lowPass (fs, std::fmin (11000.0, fs * 0.45), 0.7)); // residual fizz control
         filters[9].setCoeffs (BiquadCoeffs::highShelf (fs, 2800.0, 0.6, offAxisDb));
+        filters[10].setCoeffs (BiquadCoeffs::highShelf (fs, std::fmin (9000.0, fs * 0.4), 0.7, ms.airDb));
+        filters[11].setCoeffs (BiquadCoeffs::lowShelf (fs, 120.0, 0.7, ms.lowDb + backLowDb));
+        filters[12].setCoeffs (BiquadCoeffs::peak (fs, 350.0, 0.9, ms.bodyDb));
+        filters[13].setCoeffs (BiquadCoeffs::highShelf (fs, c.openBack ? 2500.0 : 900.0, 0.6, backHighDb));
     }
 
     float process (float x) noexcept
@@ -196,11 +242,12 @@ public:
 
 private:
     double fs = 48000.0;
-    std::array<Biquad, 10> filters;
+    std::array<Biquad, 14> filters;
     CabModel current = CabModel::Greenback4x12;
     MicType mic = MicType::Dynamic57;
     float pos = 0.3f, dist = 0.2f, angle = 0.0f;
     int speaker = 0;
+    bool back = false;
     bool dirty = true;
 };
 

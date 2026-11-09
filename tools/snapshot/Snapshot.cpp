@@ -5,7 +5,7 @@
 // renders the editor to a PNG. Exits non-zero if audio is silent or not finite.
 //
 //   vf_snapshot <scenario> <out.png> [nam-file] [ir-file]
-//   scenarios: default | mark | nam | ir | light | chain | fx | cab
+//   scenarios: default | mark | nam | ir | light | chain | fx | cab | cabrear
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
@@ -72,6 +72,7 @@ int main (int argc, char* argv[])
     proc.setPlayConfigDetails (2, 2, 48000.0, 512);
     proc.prepareToPlay (48000.0, 512);
     int selectKey = -1;
+    bool showRear = false;
 
     if (scenario == "mark")
     {
@@ -162,7 +163,26 @@ int main (int argc, char* argv[])
         setParam (st, micAlign, 1.0f);
         setParam (st, room, 2.0f);
         setParam (st, roomDist, 4.0f);
+        setParam (st, roomEnv, static_cast<float> (vf::dsp::Environment::LargeStudio));
+        setParam (st, micType, 3.0f);   // 421-style
         selectKey = vf::graph::kCab1;
+    }
+    else if (scenario == "cabrear")
+    {
+        using namespace vf::ParamID;
+        setParam (st, cabModel, static_cast<float> (vf::dsp::CabModel::Alnico2x12Open));
+        setParam (st, micBOn, 1.0f);
+        setParam (st, micBFace, 1.0f);
+        setParam (st, micBSpeaker, 1.0f);
+        setParam (st, micBPos, 3.0f);
+        setParam (st, micBDist, 2.0f);
+        setParam (st, micBPhase, 1.0f);
+        setParam (st, micAlign, 1.0f);
+        setParam (st, micBType, 6.0f);  // 414-style
+        setParam (st, room, 3.0f);
+        setParam (st, roomEnv, static_cast<float> (vf::dsp::Environment::Canyon));
+        selectKey = vf::graph::kCab1;
+        showRear = true;
     }
 
     // Let background loads finish, then run audio so swaps happen and meters move.
@@ -181,7 +201,11 @@ int main (int argc, char* argv[])
     std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditorIfNeeded());
     editor->setSize (1280, 800);
     if (selectKey >= 0)
-        if (auto* ed = dynamic_cast<ViridianForgeEditor*> (editor.get())) ed->selectBlock (selectKey);
+        if (auto* ed = dynamic_cast<ViridianForgeEditor*> (editor.get()))
+        {
+            ed->selectBlock (selectKey);
+            if (showRear) ed->showCabRear (true);
+        }
     for (int i = 0; i < 15; ++i) // let editor timers update meters, tuner and file slots
     {
         runAudio (proc, 4, rms);
