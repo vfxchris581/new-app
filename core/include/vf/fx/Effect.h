@@ -13,7 +13,7 @@
 namespace vf::fx
 {
 
-inline constexpr int kMaxParams = 8;
+inline constexpr int kMaxParams = 12;
 
 enum class FxCategory { Drive = 0, Modulation, Delay, Reverb, Dynamics, Filter, Pitch, Creative, Utility, count };
 

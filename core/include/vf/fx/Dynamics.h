@@ -4,6 +4,8 @@
 #include "Effect.h"
 #include "Primitives.h"
 
+#include <algorithm>
+
 namespace vf::fx
 {
 
@@ -326,6 +328,47 @@ public:
 private:
     int pBand[7] {}, pLevel = -1;
     std::array<vf::dsp::Biquad, 7> b[2];
+};
+
+/** 9-band graphic EQ, octave-spaced 50 Hz – 12.8 kHz, each band +/-12 dB, plus level.
+    Constant-bandwidth peaking filters (Q 1.41, one octave) so neighbouring bands sum flat. */
+class GraphicEq9Fx : public Effect
+{
+public:
+    static constexpr int kBands = 9;
+
+    GraphicEq9Fx()
+    {
+        static const char* names[kBands] = { "50", "100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "12.8k" };
+        for (int k = 0; k < kBands; ++k) pBand[k] = addParam ({ names[k], -12.0f, 12.0f, 0.0f, "dB" });
+        pLevel = addParam ({ "Level", -12.0f, 12.0f, 0.0f, "dB" });
+    }
+    void prepare (double sampleRate, int maxBlockSize) override { fs = sampleRate; maxBlock = maxBlockSize; reset(); }
+    void reset() override { for (auto& c : b) for (auto& x : c) x.reset(); }
+    void process (float* l, float* r, int n) noexcept override
+    {
+        if (consumeDirty())
+            for (auto& c : b)
+                for (int k = 0; k < kBands; ++k)
+                {
+                    // Keep the centre below 45 % of the rate so high bands stay stable at low sample rates.
+                    const double f = std::min (kCentres[k], 0.45 * fs);
+                    c[static_cast<size_t> (k)].setCoeffs (vf::dsp::BiquadCoeffs::peak (fs, f, 1.41, v (pBand[k])));
+                }
+        const float g = dbToGain (v (pLevel));
+        for (int i = 0; i < n; ++i)
+        {
+            float x = l[i], y = r[i];
+            for (auto& f : b[0]) x = f.process (x);
+            for (auto& f : b[1]) y = f.process (y);
+            l[i] = x * g; r[i] = y * g;
+        }
+    }
+
+private:
+    static constexpr double kCentres[kBands] = { 50.0, 100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0, 6400.0, 12800.0 };
+    int pBand[kBands] {}, pLevel = -1;
+    std::array<vf::dsp::Biquad, kBands> b[2];
 };
 
 //==============================================================================

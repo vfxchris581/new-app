@@ -126,6 +126,7 @@ inline const std::vector<FxType>& effectTypes()
         add ("filter.eq-3", "3-Band EQ", C::Filter, "amp-style 3-band EQ", &make<Eq3Fx>);
         add ("filter.parametric-eq", "Parametric EQ", C::Filter, "4-band studio parametric EQ", &make<ParamEqFx>);
         add ("filter.graphic-eq", "Graphic EQ", C::Filter, "Boss GE-7 / MXR graphic EQs", &make<GraphicEqFx>);
+        add ("filter.graphic-eq-9", "Graphic EQ 9-Band", C::Filter, "9-band octave graphic EQ, +/-12 dB", &make<GraphicEq9Fx>);
         add ("filter.wah", "Wah", C::Filter, "Dunlop Cry Baby / Vox V847", &make1<WahFx, WahFx::Pedal>);
         add ("filter.auto-wah", "Auto-Wah", C::Filter, "LFO-driven auto-wahs", &make1<WahFx, WahFx::Lfo>);
         add ("filter.envelope", "Envelope Filter", C::Filter, "Mu-Tron III envelope filter", &make1<WahFx, WahFx::Envelope>);
