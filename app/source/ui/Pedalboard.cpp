@@ -649,8 +649,10 @@ EffectEditor::EffectEditor (ViridianForgeProcessor& p) : processor (p)
                     sub.addItem (static_cast<int> (i) + 1, types[i].name, true, static_cast<int> (i) == processor.getSlotType (slot));
             change.addSubMenu (vf::fx::categoryName (static_cast<vf::fx::FxCategory> (c)), sub);
         }
+        // (a named local: MSVC mis-resolves `this` inside a nested init-capture)
+        SafePointer<EffectEditor> safeThis (this);
         change.showMenuAsync (PopupMenu::Options().withTargetComponent (&typeButton),
-            [this, sp = SafePointer<EffectEditor> (this)] (int r) { if (sp != nullptr && r > 0) processor.changeEffectType (slot, r - 1); });
+            [safeThis] (int r) { if (safeThis != nullptr && r > 0) safeThis->processor.changeEffectType (safeThis->slot, r - 1); });
     };
     duplicateButton.onClick = [this] { processor.duplicateEffect (slot); };
     removeButton.onClick = [this] { processor.removeBlock (slot); };
