@@ -7,7 +7,7 @@ on:
 
 jobs:
   # Which platforms to build comes from the repo variable BUILD_TARGETS (comma list of
-  # Linux, macOS, Windows). Unset means macOS only.
+  # Linux, macOS, Windows). Unset means macOS and Windows.
   plan:
     runs-on: ubuntu-24.04
     outputs:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - id: pick
         env:
-          TARGETS: ${{ vars.BUILD_TARGETS || 'macOS' }}
+          TARGETS: ${{ vars.BUILD_TARGETS || 'macOS,Windows' }}
         run: |
           json="["; sep=""
           for t in ${TARGETS//,/ }; do
