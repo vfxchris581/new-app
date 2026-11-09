@@ -104,7 +104,7 @@ inline constexpr float defaultCabModel = static_cast<float> (dsp::CabModel::Gree
 inline constexpr std::array<ParamSpec, 52> parameterSpecs {{
     { ParamID::inputGain,     "Input",          ParamKind::Float,  -24.0f, 24.0f,  0.0f,  0.1f, "dB", 1 },
     { ParamID::gateEnabled,   "Gate On",        ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   1 },
-    { ParamID::gateThreshold, "Gate Threshold", ParamKind::Float,  -96.0f, -20.0f, -62.0f, 0.1f, "dB", 1 },
+    { ParamID::gateThreshold, "Gate Threshold", ParamKind::Float,  -96.0f, -20.0f, -70.0f, 0.1f, "dB", 1 },
     { ParamID::ampModel,      "Amp Model",      ParamKind::Choice,   0.0f, lastAmpModel, defaultAmpModel, 1.0f, "", 2 },
     { ParamID::channel,       "Channel",        ParamKind::Choice,   0.0f,  2.0f,  0.0f,  1.0f, "",   1 },
     { ParamID::boost,         "Boost",          ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   1 },

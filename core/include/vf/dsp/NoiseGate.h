@@ -18,7 +18,7 @@ public:
         fs = sampleRate;
         envRelease = coeff (0.030);
         gainAttack = coeff (0.0008);
-        gainRelease = coeff (0.080);
+        gainRelease = coeff (0.150);   // a closing gate fades the tail instead of chopping it
         holdSamples = static_cast<int> (0.050 * fs);
         reset();
     }

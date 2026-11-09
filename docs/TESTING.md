@@ -20,14 +20,15 @@ The effects suite checks every one of the 107 effects:
 
 It also has behaviour tests (delay timing, reverb decay, compressor ratio,
 limiter ceiling, pitch shift, octaver, looper, freeze, gate, pan, oversampler
-rejection) and graph-engine tests (ordering, split/merge, latency compensation,
+rejection, drive pedals level-matched to bypass at their default knobs) and graph-engine tests (ordering, split/merge, latency compensation,
 click-free bypass and topology changes, off-thread garbage collection, plan
 churn from a second thread).
 
 The core suite covers every amp model and cabinet: passive tone stacks, 12AX7 operating points, grid bias shift and
 recovery, bounded output at extreme settings, distortion rising with gain,
 clean models staying clean, volume-knob cleanup, level matching, pairwise
-distinctness of all models/channels, every control audible, click-free
+distinctness of all models/channels, high-gain palm-mute attack and held-note
+sustain kept inside the range measured on captures of real heads, every control audible, click-free
 model switching, cabinet and mic behaviour, gate, tuner and parameters.
 CI runs it on Windows, macOS and Linux.
 
@@ -40,6 +41,20 @@ End-to-end smoke test + screenshots (needs `-DVF_BUILD_SNAPSHOT_TOOL=ON`):
 then exercises duplicate / change type / remove, runs audio, and checks the
 session round trip. It also drags a block across the pedalboard with
 synthesized mouse events and renders the UI.
+
+Measurement tool (`tools/vf_dynamics`): palm-mute dynamics, held-note sustain
+(`amp "<model>" <ch> <gain> 5 sustain`, `amps-sustain <gain>`), pedal fingerprints
+and sustain (`fx <id> Drive=6 sustain`), drive levels (`fx-level`), and the same
+measurements on a NAM capture (`nam <file> <label> [pedal|sustain]`) for comparing
+against real gear.
+
+## Manual checklist (amp feel: palm mutes, sustain, pedals)
+
+- [ ] High-gain channels at gain 5-7: palm-muted chugs keep a clear pick attack, not a flat wall.
+- [ ] Hold a note on the lead channels (Rectifiers, Mark series, 5150-style, Frankenhead, Steel RG100): it sings for several seconds, then fades smoothly rather than collapsing.
+- [ ] Gain 1-3 on the high-gain channels still gives rhythm crunch, not full saturation.
+- [ ] Switching any drive pedal on at its default knobs never drops the volume; all sit a little above bypass.
+- [ ] Input gate at its default (-70 dB) lets a held note ring out; when it closes, the tail fades instead of cutting.
 
 ## Manual checklist (Cab Lab: cabinets, mics, rooms)
 
