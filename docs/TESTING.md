@@ -36,8 +36,10 @@ Plugin validation (from Phase 6, run locally now if you like):
 the built `Viridian Forge.vst3`.
 
 End-to-end smoke test + screenshots (needs `-DVF_BUILD_SNAPSHOT_TOOL=ON`):
-`vf_snapshot chain out.png` builds a split two-amp chain with effects, runs
-audio, checks the session round trip, and renders the UI.
+`vf_snapshot chain out.png` builds a split two-amp chain with effects. It
+then exercises duplicate / change type / remove, runs audio, and checks the
+session round trip. It also drags a block across the pedalboard with
+synthesized mouse events and renders the UI.
 
 ## Manual checklist (Phase 4: signal chain and effects)
 

@@ -124,6 +124,17 @@ int main (int argc, char* argv[])
         setParam (st, vf::ParamID::gateEnabled, 0.0f);
         proc.setStateInformation (nullptr, 0); // no-op on bad data: must not disturb the chain
 
+        // Editing operations the pedalboard uses
+        const int dup = proc.duplicateEffect (drive);
+        bool editsOk = dup >= 0 && proc.getSlotType (dup) == proc.getSlotType (drive)
+                    && proc.getChain().find (dup).index == proc.getChain().find (drive).index + 1;
+        proc.changeEffectType (dup, type ("drive.rodent"));
+        editsOk = editsOk && proc.getSlotType (dup) == type ("drive.rodent");
+        proc.removeBlock (dup);
+        editsOk = editsOk && ! proc.getChain().contains (dup) && proc.getSlotType (dup) < 0;
+        std::printf ("edit operations %s\n", editsOk ? "ok" : "FAILED");
+        if (! editsOk) return 4;
+
         // Session round trip through a fresh processor
         juce::MemoryBlock saved;
         proc.getStateInformation (saved);
@@ -158,6 +169,29 @@ int main (int argc, char* argv[])
         runAudio (proc, 4, rms);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (30);
     }
+
+    // UI interaction test: drag the first block of the chain onto the end of the chain.
+    if (scenario == "chain")
+        if (auto* ed = dynamic_cast<ViridianForgeEditor*> (editor.get()))
+        {
+            auto& board = ed->getPedalboard();
+            const int first = proc.getChain().pre.front();
+            const auto from = board.getTileBounds (first).getCentre();
+            const auto to = board.getOutputJackBounds().getCentre().translated (-30.0f, 0.0f);
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            auto ev = [&] (juce::Point<float> pos, bool dragged)
+            {
+                return juce::MouseEvent (source, pos, juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                         &board, &board, juce::Time::getCurrentTime(), from, juce::Time::getCurrentTime(), 1, dragged);
+            };
+            board.mouseDown (ev (from, false));
+            for (int i = 1; i <= 10; ++i) board.mouseDrag (ev (from + (to - from) * (float) i / 10.0f, true));
+            board.mouseUp (ev (to, true));
+            const bool moved = proc.getChain().post.size() > 0 && proc.getChain().post.back() == first;
+            std::printf ("drag and drop %s (%s)\n", moved ? "ok" : "FAILED", proc.getChain().serialise().c_str());
+            if (! moved) return 5;
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+        }
 
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
     out.deleteFile();

@@ -37,6 +37,14 @@ public:
     void select (int key);
     std::function<void (int key)> onSelectionChanged;
 
+    /** Where a block is drawn (empty if not in the chain); used by UI tests. */
+    juce::Rectangle<float> getTileBounds (int key) const
+    {
+        for (const auto& t : tiles) if (t.key == key) return t.r;
+        return {};
+    }
+    juce::Rectangle<float> getOutputJackBounds() const noexcept { return outJack; }
+
     static juce::Colour categoryColour (vf::fx::FxCategory c);
     static juce::Colour blockColour (const ViridianForgeProcessor& p, int key);
     static juce::String blockTitle (const ViridianForgeProcessor& p, int key);

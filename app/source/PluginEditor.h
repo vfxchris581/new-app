@@ -21,6 +21,7 @@ public:
 
     /** Select a chain block for editing (as a click on the pedalboard would). */
     void selectBlock (int key) { pedalboard.select (key); }
+    Pedalboard& getPedalboard() noexcept { return pedalboard; }
 
 private:
     void timerCallback() override;
