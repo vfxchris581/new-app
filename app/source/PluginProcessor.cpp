@@ -34,6 +34,8 @@ void addSpec (juce::AudioProcessorValueTreeState::ParameterLayout& layout, const
             else if (base == ParamID::micType)   choices = toStringArray (vf::dsp::micTypeNames);
             else if (base == ParamID::ampSource) choices = toStringArray (ampSourceNames);
             else if (base == ParamID::cabSource) choices = toStringArray (cabSourceNames);
+            else if (base == ParamID::micBType)  choices = toStringArray (vf::dsp::micTypeNames);
+            else if (base == ParamID::micASpeaker || base == ParamID::micBSpeaker) choices = toStringArray (speakerNames);
             else if (base == ParamID::ampModel)
                 for (const auto& m : vf::models::ampModels()) choices.add (m.name);
             layout.add (std::make_unique<juce::AudioParameterChoice> (pid, name, choices, static_cast<int> (p.defaultValue)));
@@ -88,10 +90,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout ViridianForgeProcessor::crea
     // Phase 4: Amp 2 / Cab 2 (prefixed copies of the amp and cab parameters)
     for (const char* id : ampParamIds)
         if (const auto* p = findParamSpec (id))
-            addSpec (layout, *p, juce::String (amp2Prefix) + id, "Amp 2 " + juce::String (p->name), 4);
+            addSpec (layout, *p, juce::String (amp2Prefix) + id, "Amp 2 " + juce::String (p->name), std::max (4, p->version));
     for (const char* id : cabParamIds)
         if (const auto* p = findParamSpec (id))
-            addSpec (layout, *p, juce::String (cab2Prefix) + id, "Cab 2 " + juce::String (p->name), 4);
+            addSpec (layout, *p, juce::String (cab2Prefix) + id, "Cab 2 " + juce::String (p->name), std::max (4, p->version));
 
     // Parallel lanes mixer
     layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { ParamID::splitMode, 4 }, "Split Mode",

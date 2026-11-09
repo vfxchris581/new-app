@@ -22,13 +22,14 @@ ViridianForgeEditor::ViridianForgeEditor (ViridianForgeProcessor& p)
       ampHead1 (p.getState(), p, 0), ampHead2 (p.getState(), p, 1),
       cabPanel1 (p.getState(), p, 0), cabPanel2 (p.getState(), p, 1),
       effectEditor (p),
+      cabRoom1 (p, 0), cabRoom2 (p, 1),
       pedalboard (p)
 {
     setLookAndFeel (&laf);
 
     for (auto* c : std::initializer_list<Component*> { &topBar, &ioPanel, &pedalboard })
         addAndMakeVisible (c);
-    for (auto* c : std::initializer_list<Component*> { &ampHead1, &ampHead2, &cabPanel1, &cabPanel2, &effectEditor })
+    for (auto* c : std::initializer_list<Component*> { &ampHead1, &ampHead2, &cabPanel1, &cabPanel2, &effectEditor, &cabRoom1, &cabRoom2 })
         addChildComponent (c);
     pedalboard.onSelectionChanged = [this] (int key) { showBlock (key); };
     showBlock (vf::graph::kAmp1);
@@ -96,27 +97,18 @@ ViridianForgeEditor::~ViridianForgeEditor()
 void ViridianForgeEditor::showBlock (int key)
 {
     using namespace vf::graph;
-    // Main area: the selected amp or effect. Right panel: the selected cab (or the
-    // last one shown when something else is selected).
-    if (isFxKey (key))
-    {
-        effectEditor.setSlot (key);
-        effectEditor.setVisible (true);
-        ampHead1.setVisible (false);
-        ampHead2.setVisible (false);
-    }
-    else if (isAmpKey (key))
-    {
-        effectEditor.setVisible (false);
-        ampHead1.setVisible (key == kAmp1);
-        ampHead2.setVisible (key == kAmp2);
-    }
-    else if (isCabKey (key))
+    // Main area: the selected amp, effect or cab (mic placement). Right panel: the
+    // selected cab, or the last one shown when something else is selected.
+    if (isFxKey (key)) effectEditor.setSlot (key);
+    effectEditor.setVisible (isFxKey (key));
+    ampHead1.setVisible (key == kAmp1);
+    ampHead2.setVisible (key == kAmp2);
+    cabRoom1.setVisible (key == kCab1);
+    cabRoom2.setVisible (key == kCab2);
+    if (isCabKey (key))
     {
         cabPanel1.setVisible (key == kCab1);
         cabPanel2.setVisible (key == kCab2);
-        if (! ampHead1.isVisible() && ! ampHead2.isVisible() && ! effectEditor.isVisible())
-            ampHead1.setVisible (true);
     }
 }
 
@@ -172,6 +164,8 @@ void ViridianForgeEditor::resized()
     ampHead1.setBounds (r);
     ampHead2.setBounds (r);
     effectEditor.setBounds (r);
+    cabRoom1.setBounds (r);
+    cabRoom2.setBounds (r);
 
     about.setBounds (getLocalBounds());
     if (splash != nullptr)

@@ -11,7 +11,9 @@
 #pragma once
 
 #include "Biquad.h"
+#include <algorithm>
 #include <array>
+#include <complex>
 #include <vector>
 
 namespace vf::dsp
@@ -57,6 +59,43 @@ inline constexpr std::array<const char*, static_cast<size_t> (CabModel::count)> 
     "1x12 American Open", "2x12 Alnico Open", "4x10 Tweed Open", "4x12 Greenback", "4x12 V30", "4x12 Modern Metal", "1x12 British Closed"
 };
 
+/** Physical layout of a cabinet's baffle (for mic placement and speaker bleed). */
+struct CabGeometry
+{
+    int speakers = 1;          // 1, 2 or 4
+    int columns = 1;           // 1 or 2; rows = speakers / columns
+    float spacingCm = 34.0f;   // centre-to-centre
+    float coneRadiusCm = 13.0f;
+
+    /** Speaker centre relative to the baffle centre, in cm (x right, y down). */
+    void centre (int k, float& x, float& y) const noexcept
+    {
+        const int rows = speakers / columns;
+        const int c = k % columns, r = k / columns;
+        x = (static_cast<float> (c) - 0.5f * static_cast<float> (columns - 1)) * spacingCm;
+        y = (static_cast<float> (r) - 0.5f * static_cast<float> (rows - 1)) * spacingCm;
+    }
+};
+
+inline CabGeometry getCabGeometry (CabModel m) noexcept
+{
+    switch (m)
+    {
+        case CabModel::Alnico2x12Open: return { 2, 2, 34.0f, 13.0f };
+        case CabModel::Tweed4x10Open:  return { 4, 2, 28.0f, 11.0f };
+        case CabModel::Greenback4x12:
+        case CabModel::V30_4x12:
+        case CabModel::Modern4x12:     return { 4, 2, 34.0f, 13.0f };
+        case CabModel::American1x12Open:
+        case CabModel::British1x12Closed:
+        case CabModel::count:
+        default:                       return { 1, 1, 34.0f, 13.0f };
+    }
+}
+
+inline constexpr float kMaxMicDistanceCm = 30.0f;  // distance knob 10 = 30 cm off the grille
+inline constexpr float kMaxMicAngleDeg = 60.0f;
+
 class CabinetSim
 {
 public:
@@ -84,6 +123,17 @@ public:
         }
     }
 
+    /** Which speaker of a multi-speaker cab is miked (no two speakers sound quite the same)
+        and how far the mic is turned off-axis (0..60 degrees: darker, less presence). */
+    void setPlacement (int speakerIndex, float angleDegrees) noexcept
+    {
+        if (speakerIndex != speaker || controlChanged (angleDegrees, angle))
+        {
+            speaker = speakerIndex; angle = angleDegrees;
+            dirty = true;
+        }
+    }
+
     /** Recompute coefficients if anything changed (cheap; call once per block). */
     void update() noexcept
     {
@@ -91,6 +141,13 @@ public:
         dirty = false;
         const auto& c = getCabinetSpec (current);
         const double p = pos, d = dist;
+
+        // Speaker-to-speaker variation (manufacturing spread + break-in): small, fixed per position.
+        static constexpr double variation[4] { 0.0, 1.0, -0.8, 0.5 };
+        const int spk = std::min (std::max (0, speaker), getCabGeometry (current).speakers - 1);
+        const double v = variation[spk];
+        // Off-axis: the mic turns away from the dust cap; highs fall first.
+        const double a = std::min (1.0, std::max (0.0, static_cast<double> (angle) / kMaxMicAngleDeg));
 
         // Mic family: dynamic = classic upper-mid bite; ribbon = smooth, darker, big
         // proximity effect; condenser = extended top, flatter presence.
@@ -106,18 +163,20 @@ public:
         const double lowCut = c.lowCutHz * (1.0 + 0.25 * d);              // further away: less low end
         const double proximityDb = 5.0 * micProximity * (1.0 - d) * (1.0 - d); // close-mic bass boost
         const double rollOff = std::fmin (fs * 0.45, c.rollOffHz * micRoll * (1.0 - 0.45 * p) * (1.0 - 0.15 * d));
-        const double presenceDb = c.presenceDb * micPresence * (1.0 - 0.6 * p);
-        const double breakupDb = c.breakupDb * micBreakup * (1.0 - 0.8 * p) - 1.5 * d;
+        const double presenceDb = c.presenceDb * micPresence * (1.0 - 0.6 * p) * (1.0 - 0.45 * a);
+        const double breakupDb = c.breakupDb * micBreakup * (1.0 - 0.8 * p) - 1.5 * d + 0.8 * v;
+        const double offAxisDb = -10.0 * a * a * (mic == MicType::Ribbon121 ? 0.6 : (mic == MicType::Condenser ? 0.8 : 1.0));
 
         filters[0].setCoeffs (BiquadCoeffs::highPass (fs, lowCut, c.openBack ? 0.6 : 0.85));
         filters[1].setCoeffs (BiquadCoeffs::peak (fs, c.resonanceHz, c.resonanceQ, c.openBack ? c.resonanceDb * 0.7 : c.resonanceDb));
         filters[2].setCoeffs (BiquadCoeffs::lowShelf (fs, 180.0, 0.7, proximityDb));
-        filters[3].setCoeffs (BiquadCoeffs::peak (fs, c.midHz, c.midQ, c.midDb));
-        filters[4].setCoeffs (BiquadCoeffs::peak (fs, c.presenceHz, 1.1, presenceDb));
-        filters[5].setCoeffs (BiquadCoeffs::peak (fs, c.breakupHz, 2.2, breakupDb));
+        filters[3].setCoeffs (BiquadCoeffs::peak (fs, c.midHz, c.midQ, c.midDb + 0.4 * v));
+        filters[4].setCoeffs (BiquadCoeffs::peak (fs, c.presenceHz * (1.0 + 0.04 * v), 1.1, presenceDb));
+        filters[5].setCoeffs (BiquadCoeffs::peak (fs, c.breakupHz * (1.0 - 0.05 * v), 2.2, breakupDb));
         filters[6].setCoeffs (BiquadCoeffs::lowPass (fs, rollOff, 0.54));   // 4th-order roll-off
         filters[7].setCoeffs (BiquadCoeffs::lowPass (fs, rollOff, 1.31));
         filters[8].setCoeffs (BiquadCoeffs::lowPass (fs, std::fmin (11000.0, fs * 0.45), 0.7)); // residual fizz control
+        filters[9].setCoeffs (BiquadCoeffs::highShelf (fs, 2800.0, 0.6, offAxisDb));
     }
 
     float process (float x) noexcept
@@ -126,40 +185,57 @@ public:
         return x;
     }
 
-    double magnitudeAt (double freq) const noexcept
+    double magnitudeAt (double freq) const noexcept { return std::abs (responseAt (freq)); }
+
+    std::complex<double> responseAt (double freq) const noexcept
     {
-        double m = 1.0;
-        for (const auto& f : filters) m *= f.getCoeffs().magnitudeAt (freq, fs);
-        return m;
+        std::complex<double> h (1.0, 0.0);
+        for (const auto& f : filters) h *= f.getCoeffs().responseAt (freq, fs);
+        return h;
     }
 
 private:
     double fs = 48000.0;
-    std::array<Biquad, 9> filters;
+    std::array<Biquad, 10> filters;
     CabModel current = CabModel::Greenback4x12;
     MicType mic = MicType::Dynamic57;
-    float pos = 0.3f, dist = 0.2f;
+    float pos = 0.3f, dist = 0.2f, angle = 0.0f;
+    int speaker = 0;
     bool dirty = true;
 };
 
-/** Small stereo room: early reflections off nearby walls, as heard by a room mic.
-    Turns the mono amp/cab signal into a natural stereo image. */
+/** Small stereo room, as heard by a pair of room mics: early reflections off nearby
+    walls. Turns the mono amp/cab signal into a natural stereo image. The room-mic
+    distance moves the pair back from the cab: later, sparser, darker reflections. */
 class RoomAmbience
 {
 public:
     void prepare (double sampleRate)
     {
         fs = sampleRate;
-        const size_t len = static_cast<size_t> (0.04 * fs) + 2;
+        const size_t len = static_cast<size_t> ((kMaxScale * 35.0 + kMaxPreDelayMs + 2.0) * 0.001 * fs) + 2;
         line.assign (len, 0.0f);
         writePos = 0;
-        damping.setCoeffs (BiquadCoeffs::lowPass (fs, 5500.0, 0.6));
         damping.reset();
+        configured = -1.0f;
+        setDistance (distance);
+    }
+
+    /** 0 = room mics close to the cab (the Phase 3 sound) .. 1 = far back in the room. */
+    void setDistance (float d) noexcept
+    {
+        d = std::min (1.0f, std::max (0.0f, d));
+        distance = d;
+        if (std::fabs (d - configured) < 1.0e-4f || line.empty()) return;
+        configured = d;
+        const double scale = 1.0 + (kMaxScale - 1.0) * d, pre = kMaxPreDelayMs * d;
         for (size_t i = 0; i < taps; ++i)
         {
-            tapL[i] = static_cast<int> (msL[i] * 0.001 * fs);
-            tapR[i] = static_cast<int> (msR[i] * 0.001 * fs);
+            tapL[i] = static_cast<int> ((msL[i] * scale + pre) * 0.001 * fs);
+            tapR[i] = static_cast<int> ((msR[i] * scale + pre) * 0.001 * fs);
         }
+        damping.setCoeffs (BiquadCoeffs::lowPass (fs, 5500.0 - 2700.0 * d, 0.6));
+        level = static_cast<float> (1.0 / (1.0 + 0.6 * d));
     }
 
     /** amount 0..1 (wet level). Writes stereo output. */
@@ -175,12 +251,15 @@ public:
             r += gain[i] * line[static_cast<size_t> ((static_cast<int> (writePos) - tapR[i] + n) % n)];
         }
         writePos = (writePos + 1) % line.size();
-        left = in + amount * l;
-        right = in + amount * r;
+        left = in + amount * level * l;
+        right = in + amount * level * r;
     }
+
+    void reset() noexcept { std::fill (line.begin(), line.end(), 0.0f); damping.reset(); }
 
 private:
     static constexpr size_t taps = 6;
+    static constexpr double kMaxScale = 2.6, kMaxPreDelayMs = 9.0;
     static constexpr float msL[taps] { 3.1f, 7.3f, 11.9f, 17.3f, 23.9f, 31.7f };
     static constexpr float msR[taps] { 4.3f, 8.9f, 13.7f, 19.1f, 26.3f, 34.1f };
     static constexpr float gain[taps] { 0.55f, -0.42f, 0.33f, -0.26f, 0.2f, -0.15f };
@@ -188,6 +267,7 @@ private:
     std::vector<float> line;
     size_t writePos = 0;
     int tapL[taps] {}, tapR[taps] {};
+    float distance = 0.0f, configured = -1.0f, level = 1.0f;
     Biquad damping;
 };
 

@@ -5,7 +5,7 @@
 // renders the editor to a PNG. Exits non-zero if audio is silent or not finite.
 //
 //   vf_snapshot <scenario> <out.png> [nam-file] [ir-file]
-//   scenarios: default | mark | nam | ir | light | chain | fx
+//   scenarios: default | mark | nam | ir | light | chain | fx | cab
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
@@ -145,6 +145,24 @@ int main (int argc, char* argv[])
         std::printf ("chain: %s | round trip %s | latency %d\n", proc.getChain().serialise().c_str(), same ? "ok" : "MISMATCH", proc.getLatencySamples());
         if (! same) return 3;
         if (scenario == "fx") selectKey = drive;
+    }
+
+    else if (scenario == "cab")
+    {
+        using namespace vf::ParamID;
+        setParam (st, cabModel, static_cast<float> (vf::dsp::CabModel::V30_4x12));
+        setParam (st, micPosition, 2.5f);
+        setParam (st, micDistance, 0.5f);
+        setParam (st, micBOn, 1.0f);
+        setParam (st, micBSpeaker, 3.0f);
+        setParam (st, micBPos, 6.5f);
+        setParam (st, micBDist, 5.0f);
+        setParam (st, micBAngle, 25.0f);
+        setParam (st, micBType, 1.0f);
+        setParam (st, micAlign, 1.0f);
+        setParam (st, room, 2.0f);
+        setParam (st, roomDist, 4.0f);
+        selectKey = vf::graph::kCab1;
     }
 
     // Let background loads finish, then run audio so swaps happen and meters move.

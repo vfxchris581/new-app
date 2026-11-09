@@ -64,6 +64,20 @@ namespace ParamID
     inline constexpr const char* cabHighCut    = "cabHighCut";
     inline constexpr const char* room          = "room";
     inline constexpr const char* cabStereo     = "cabStereo";
+    // Phase 4b: two-mic cab capture
+    inline constexpr const char* micASpeaker   = "micASpeaker";
+    inline constexpr const char* micAAngle     = "micAAngle";
+    inline constexpr const char* micALevel     = "micALevel";
+    inline constexpr const char* micBOn        = "micBOn";
+    inline constexpr const char* micBSpeaker   = "micBSpeaker";
+    inline constexpr const char* micBPos       = "micBPos";
+    inline constexpr const char* micBDist      = "micBDist";
+    inline constexpr const char* micBAngle     = "micBAngle";
+    inline constexpr const char* micBType      = "micBType";
+    inline constexpr const char* micBLevel     = "micBLevel";
+    inline constexpr const char* micBPhase     = "micBPhase";
+    inline constexpr const char* micAlign      = "micAlign";
+    inline constexpr const char* roomDist      = "roomDist";
 
     inline constexpr std::array<const char*, 5> geqBands { geq80, geq240, geq750, geq2200, geq6600 };
 }
@@ -72,13 +86,14 @@ inline constexpr std::array<const char*, 3> channelNames   { "Channel 1", "Chann
 inline constexpr std::array<const char*, 8> tubeSwapNames  { "Stock", "EL34", "6L6", "EL84", "6550", "KT88", "6V6", "5881" };
 inline constexpr std::array<const char*, 2> ampSourceNames { "Model", "NAM" };
 inline constexpr std::array<const char*, 3> cabSourceNames { "Built-in", "IR A", "IR A + B" };
+inline constexpr std::array<const char*, 4> speakerNames   { "Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4" };
 
 inline constexpr float lastAmpModel = static_cast<float> (models::kNumAmpModels) - 1.0f;
 inline constexpr float lastCabModel = static_cast<float> (dsp::CabModel::count) - 1.0f;
 inline constexpr float defaultAmpModel = static_cast<float> (models::AmpModelId::Plate59Lead);
 inline constexpr float defaultCabModel = static_cast<float> (dsp::CabModel::Greenback4x12);
 
-inline constexpr std::array<ParamSpec, 36> parameterSpecs {{
+inline constexpr std::array<ParamSpec, 49> parameterSpecs {{
     { ParamID::inputGain,     "Input",          ParamKind::Float,  -24.0f, 24.0f,  0.0f,  0.1f, "dB", 1 },
     { ParamID::gateEnabled,   "Gate On",        ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   1 },
     { ParamID::gateThreshold, "Gate Threshold", ParamKind::Float,  -96.0f, -20.0f, -62.0f, 0.1f, "dB", 1 },
@@ -97,8 +112,8 @@ inline constexpr std::array<ParamSpec, 36> parameterSpecs {{
     { ParamID::tubeSwap,      "Power Tubes",    ParamKind::Choice,   0.0f,  7.0f,  0.0f,  1.0f, "",   2 },
     { ParamID::cabEnabled,    "Cab On",         ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   1 },
     { ParamID::cabModel,      "Cabinet",        ParamKind::Choice,   0.0f, lastCabModel, defaultCabModel, 1.0f, "", 2 },
-    { ParamID::micPosition,   "Mic Position",   ParamKind::Float,    0.0f, 10.0f,  3.0f, 0.01f, "",   2 },
-    { ParamID::micDistance,   "Mic Distance",   ParamKind::Float,    0.0f, 10.0f,  2.0f, 0.01f, "",   2 },
+    { ParamID::micPosition,   "Mic A Position", ParamKind::Float,    0.0f, 10.0f,  3.0f, 0.01f, "",   2 },
+    { ParamID::micDistance,   "Mic A Distance", ParamKind::Float,    0.0f, 10.0f,  2.0f, 0.01f, "",   2 },
     { ParamID::outputLevel,   "Output",         ParamKind::Float,  -36.0f, 12.0f, -6.0f,  0.1f, "dB", 1 },
     { ParamID::ampSource,     "Amp Source",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   3 },
     { ParamID::geqOn,         "Graphic EQ On",  ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   3 },
@@ -108,13 +123,26 @@ inline constexpr std::array<ParamSpec, 36> parameterSpecs {{
     { ParamID::geq2200,       "GEQ 2.2 kHz",    ParamKind::Float,  -12.0f, 12.0f,  0.0f,  0.1f, "dB", 3 },
     { ParamID::geq6600,       "GEQ 6.6 kHz",    ParamKind::Float,  -12.0f, 12.0f,  0.0f,  0.1f, "dB", 3 },
     { ParamID::cabSource,     "Cab Source",     ParamKind::Choice,   0.0f,  2.0f,  0.0f,  1.0f, "",   3 },
-    { ParamID::micType,       "Mic Type",       ParamKind::Choice,   0.0f,  2.0f,  0.0f,  1.0f, "",   3 },
+    { ParamID::micType,       "Mic A Type",     ParamKind::Choice,   0.0f,  2.0f,  0.0f,  1.0f, "",   3 },
     { ParamID::irBlend,       "IR Blend",       ParamKind::Float,    0.0f, 10.0f,  5.0f, 0.01f, "",   3 },
     { ParamID::irPhaseB,      "IR B Phase",     ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   3 },
     { ParamID::cabLowCut,     "Cab Low Cut",    ParamKind::Float,   20.0f, 400.0f, 40.0f, 1.0f, "Hz", 3 },
     { ParamID::cabHighCut,    "Cab High Cut",   ParamKind::Float, 2000.0f, 20000.0f, 12000.0f, 10.0f, "Hz", 3 },
     { ParamID::room,          "Room",           ParamKind::Float,    0.0f, 10.0f,  0.0f, 0.01f, "",   3 },
     { ParamID::cabStereo,     "Stereo",         ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   3 },
+    { ParamID::micASpeaker,   "Mic A Speaker",  ParamKind::Choice,   0.0f,  3.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micAAngle,     "Mic A Angle",    ParamKind::Float,    0.0f, 60.0f,  0.0f,  0.1f, "deg", 5 },
+    { ParamID::micALevel,     "Mic A Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
+    { ParamID::micBOn,        "Mic B On",       ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micBSpeaker,   "Mic B Speaker",  ParamKind::Choice,   0.0f,  3.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micBPos,       "Mic B Position", ParamKind::Float,    0.0f, 10.0f,  6.0f, 0.01f, "",   5 },
+    { ParamID::micBDist,      "Mic B Distance", ParamKind::Float,    0.0f, 10.0f,  4.0f, 0.01f, "",   5 },
+    { ParamID::micBAngle,     "Mic B Angle",    ParamKind::Float,    0.0f, 60.0f,  0.0f,  0.1f, "deg", 5 },
+    { ParamID::micBType,      "Mic B Type",     ParamKind::Choice,   0.0f,  2.0f,  1.0f,  1.0f, "",   5 },
+    { ParamID::micBLevel,     "Mic B Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
+    { ParamID::micBPhase,     "Mic B Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micAlign,      "Mic Time Align", ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::roomDist,      "Room Distance",  ParamKind::Float,    0.0f, 10.0f,  0.0f, 0.01f, "",   5 },
 }};
 
 //==============================================================================
@@ -129,10 +157,13 @@ inline constexpr std::array<const char*, 20> ampParamIds {
     ParamID::geq2200, ParamID::geq6600 };
 
 /** Parameters owned by a cab block; Cab 2 uses them prefixed with "cab2_". */
-inline constexpr std::array<const char*, 12> cabParamIds {
+inline constexpr std::array<const char*, 25> cabParamIds {
     ParamID::cabEnabled, ParamID::cabModel, ParamID::micPosition, ParamID::micDistance, ParamID::cabSource,
     ParamID::micType, ParamID::irBlend, ParamID::irPhaseB, ParamID::cabLowCut, ParamID::cabHighCut,
-    ParamID::room, ParamID::cabStereo };
+    ParamID::room, ParamID::cabStereo,
+    ParamID::micASpeaker, ParamID::micAAngle, ParamID::micALevel, ParamID::micBOn, ParamID::micBSpeaker,
+    ParamID::micBPos, ParamID::micBDist, ParamID::micBAngle, ParamID::micBType, ParamID::micBLevel,
+    ParamID::micBPhase, ParamID::micAlign, ParamID::roomDist };
 
 inline constexpr const char* amp2Prefix = "amp2_";
 inline constexpr const char* cab2Prefix = "cab2_";

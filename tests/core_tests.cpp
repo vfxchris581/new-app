@@ -4,6 +4,7 @@
 #include "vf/Parameters.h"
 #include "vf/dsp/AmpVoice.h"
 #include "vf/dsp/Cabinet.h"
+#include "vf/dsp/CabMics.h"
 #include "vf/dsp/NoiseGate.h"
 #include "vf/dsp/Resampler.h"
 #include "vf/dsp/ToneShaper.h"
@@ -598,6 +599,146 @@ int main()
         check (at (MicType::Ribbon121, 5000.0) < at (MicType::Dynamic57, 5000.0) * 0.6, "ribbon is darker than dynamic");
         check (at (MicType::Ribbon121, 120.0) > at (MicType::Dynamic57, 120.0) * 1.15, "ribbon has more proximity bass");
         check (at (MicType::Condenser, 7000.0) > at (MicType::Dynamic57, 7000.0) * 1.5, "condenser has more extended top");
+    });
+
+    test ("Mic placement: angle, speaker choice and Phase 3 compatibility", []
+    {
+        auto db = [] (double m) { return 20.0 * std::log10 (m); };
+        CabinetSim a; a.prepare (48000.0);
+        CabinetSim b; b.prepare (48000.0);
+        a.setParams (CabModel::V30_4x12, 0.3f, 0.2f); a.update();
+        b.setParams (CabModel::V30_4x12, 0.3f, 0.2f); b.setPlacement (0, 0.0f); b.update();
+        bool same = true;
+        for (double f = 50.0; f < 15000.0; f *= 1.2) same = same && std::fabs (a.magnitudeAt (f) - b.magnitudeAt (f)) < 1e-12;
+        check (same, "speaker 1 on-axis is exactly the original single-mic response");
+
+        b.setPlacement (0, 60.0f); b.update();
+        check (db (b.magnitudeAt (6000.0)) < db (a.magnitudeAt (6000.0)) - 7.0, "60 degrees off-axis loses top end");
+        check (std::fabs (db (b.magnitudeAt (200.0)) - db (a.magnitudeAt (200.0))) < 0.5, "off-axis leaves the lows alone");
+
+        b.setPlacement (1, 0.0f); b.update();
+        double diff = 0.0; int n = 0;
+        for (double f = 300.0; f < 8000.0; f *= 1.1) { diff += std::fabs (db (a.magnitudeAt (f)) - db (b.magnitudeAt (f))); ++n; }
+        check (diff / n > 0.15, "a different speaker in a 4x12 sounds slightly different (" + std::to_string (diff / n) + " dB)");
+        CabinetSim c1; c1.prepare (48000.0); c1.setParams (CabModel::British1x12Closed, 0.3f, 0.2f); c1.update();
+        CabinetSim c2; c2.prepare (48000.0); c2.setParams (CabModel::British1x12Closed, 0.3f, 0.2f); c2.setPlacement (3, 0.0f); c2.update();
+        check (std::fabs (c1.magnitudeAt (3000.0) - c2.magnitudeAt (3000.0)) < 1e-12, "a 1x12 has one speaker: speaker choice is clamped");
+    });
+
+    test ("Two-mic capture: bleed, polarity, time alignment, levels, smooth moves", []
+    {
+        auto ripple = [] (const CabMics& m, const CabinetSim& ref, int mic)
+        {
+            double lo = 1e9, hi = 0.0;
+            for (double f = 200.0; f < 4000.0; f *= 1.03)
+            {
+                const double r = std::abs (m.responseAt (mic, f)) / ref.magnitudeAt (f);
+                lo = std::min (lo, r); hi = std::max (hi, r);
+            }
+            return 20.0 * std::log10 (hi / lo);
+        };
+        auto mics = [] (CabModel cab, MicSettings a, MicSettings b, bool align)
+        {
+            CabMics m; m.prepare (48000.0); m.set (cab, a, b, align); return m;
+        };
+        MicSettings close; close.distance = 0.0f;
+        MicSettings far; far.distance = 1.0f;
+        MicSettings off; off.enabled = false;
+
+        CabinetSim ref; ref.prepare (48000.0);
+        ref.setParams (CabModel::V30_4x12, far.position, far.distance); ref.update();
+        const double farRipple = ripple (mics (CabModel::V30_4x12, far, off, false), ref, 0);
+        ref.setParams (CabModel::V30_4x12, close.position, close.distance); ref.update();
+        const double closeRipple = ripple (mics (CabModel::V30_4x12, close, off, false), ref, 0);
+        CabinetSim ref1; ref1.prepare (48000.0); ref1.setParams (CabModel::British1x12Closed, far.position, far.distance); ref1.update();
+        const double oneRipple = ripple (mics (CabModel::British1x12Closed, far, off, false), ref1, 0);
+        check (closeRipple < 0.1, "on the grille a mic hears only its own speaker (" + std::to_string (closeRipple) + " dB)");
+        check (farRipple > 2.0, "backed off a 4x12 the other speakers comb in (" + std::to_string (farRipple) + " dB)");
+        check (oneRipple < 0.1, "a 1x12 has no other speakers to bleed");
+
+        // Polarity: identical mics, B inverted, cancel completely.
+        MicSettings b = close; b.invert = true;
+        auto cancel = mics (CabModel::V30_4x12, close, b, false);
+        check (std::abs (cancel.monoResponseAt (1000.0)) < 1e-6, "identical mics with B phase-flipped cancel");
+        {
+            std::vector<float> in = sine (1000.0, 48000.0, 9600, 0.5f);
+            double e = 0.0;
+            for (size_t i = 0; i < in.size(); ++i) { float x, y; cancel.process (in[i], x, y); if (i > 4800) e += std::fabs (0.5f * (x + y)); }
+            check (e / 4800.0 < 1e-5, "...and in the audio path too");
+        }
+
+        // Time alignment: 30 cm apart on a 1x12 gives a comb notch; aligned, it is gone.
+        auto worst = [] (const CabMics& m)
+        {
+            double w = 1e9;
+            for (double f = 300.0; f < 6000.0; f *= 1.01)
+                w = std::min (w, std::abs (m.monoResponseAt (f)) / (0.5 * (std::abs (m.responseAt (0, f)) + std::abs (m.responseAt (1, f)))));
+            return w;
+        };
+        const auto notched = mics (CabModel::British1x12Closed, close, far, false);
+        const auto aligned = mics (CabModel::British1x12Closed, close, far, true);
+        check (worst (notched) < 0.3, "close + far mic comb-filter (" + std::to_string (worst (notched)) + ")");
+        check (worst (aligned) > 0.6, "Time Align removes the comb (" + std::to_string (worst (aligned)) + ")");
+        check (std::fabs (aligned.delaySamples (0) - aligned.delaySamples (1)) < 1e-3f, "aligned mics arrive together");
+        check (notched.delaySamples (1) - notched.delaySamples (0) > 40.0f, "30 cm is about 0.9 ms later at 48 kHz");
+
+        // Levels and enable
+        MicSettings quiet = close; quiet.levelDb = -6.0206f;
+        const auto lv = mics (CabModel::V30_4x12, quiet, off, false);
+        const auto ref0 = mics (CabModel::V30_4x12, close, off, false);
+        check (std::fabs (std::abs (lv.responseAt (0, 1000.0)) / std::abs (ref0.responseAt (0, 1000.0)) - 0.5) < 1e-3, "mic level -6 dB halves it");
+        {
+            auto m = mics (CabModel::V30_4x12, close, off, false);
+            float x, y; m.process (0.3f, x, y);
+            check (y == 0.0f && ! m.isMicBEnabled(), "mic B off contributes nothing");
+        }
+
+        // Audio path matches the predicted response (delays, bleed, levels).
+        MicSettings mid; mid.distance = 0.6f; mid.position = 0.5f; mid.levelDb = -3.0f;
+        auto m = mics (CabModel::Greenback4x12, mid, far, false);
+        const auto in = sine (800.0, 48000.0, 48000, 0.25f);
+        std::vector<float> outA (in.size());
+        for (size_t i = 0; i < in.size(); ++i) { float y; m.process (in[i], outA[i], y); }
+        const double measured = toneLevel (outA, 800.0, 48000.0, 24000) / 0.25;
+        check (std::fabs (20.0 * std::log10 (measured / std::abs (m.responseAt (0, 800.0)))) < 0.3, "processed level matches the response model");
+
+        // Dragging a mic while playing: no clicks.
+        auto drag = mics (CabModel::Greenback4x12, close, off, false);
+        const auto tone = sine (220.0, 48000.0, 48000, 0.3f);
+        double maxStep = 0.0; float prev = 0.0f;
+        for (size_t i = 0; i < tone.size(); ++i)
+        {
+            if (i % 256 == 0)
+            {
+                MicSettings moving = close;
+                moving.distance = static_cast<float> (i) / static_cast<float> (tone.size());
+                moving.angle = 60.0f * moving.distance;
+                moving.position = moving.distance;
+                drag.set (CabModel::Greenback4x12, moving, off, false);
+            }
+            float y, z; drag.process (tone[i], y, z);
+            if (i > 2000) maxStep = std::max (maxStep, static_cast<double> (std::fabs (y - prev)));
+            prev = y;
+        }
+        check (maxStep < 0.06, "moving a mic while playing is smooth (max step " + std::to_string (maxStep) + ")");
+    });
+
+    test ("Room mic distance: later, darker reflections; 0 keeps the Phase 3 room", []
+    {
+        auto firstEcho = [] (float distance)
+        {
+            RoomAmbience r; r.prepare (48000.0); r.setDistance (distance);
+            int at = -1;
+            for (int i = 0; i < 6000; ++i)
+            {
+                float l, rr; r.process (i == 0 ? 1.0f : 0.0f, 1.0f, l, rr);
+                if (i > 0 && at < 0 && std::fabs (l) > 0.02f) at = i;
+            }
+            return at;
+        };
+        const int near = firstEcho (0.0f), farAt = firstEcho (1.0f);
+        check (near > 100 && near < 200, "close room mic: first reflection after ~3 ms (" + std::to_string (near) + ")");
+        check (farAt > near * 3, "far room mic: reflections arrive much later (" + std::to_string (farAt) + ")");
     });
 
     test ("Room ambience widens the image and is dry at zero", []

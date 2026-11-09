@@ -16,6 +16,38 @@ CabBlock::CabBlock (juce::AudioProcessorValueTreeState& state, const juce::Strin
     raw.micDist = get (ParamID::micDistance);  raw.cabSource = get (ParamID::cabSource); raw.micType = get (ParamID::micType);
     raw.irBlend = get (ParamID::irBlend);      raw.irPhaseB = get (ParamID::irPhaseB);   raw.cabLowCut = get (ParamID::cabLowCut);
     raw.cabHighCut = get (ParamID::cabHighCut); raw.room = get (ParamID::room);          raw.cabStereo = get (ParamID::cabStereo);
+    raw.micASpeaker = get (ParamID::micASpeaker); raw.micAAngle = get (ParamID::micAAngle); raw.micALevel = get (ParamID::micALevel);
+    raw.micBOn = get (ParamID::micBOn);         raw.micBSpeaker = get (ParamID::micBSpeaker); raw.micBPos = get (ParamID::micBPos);
+    raw.micBDist = get (ParamID::micBDist);     raw.micBAngle = get (ParamID::micBAngle);   raw.micBType = get (ParamID::micBType);
+    raw.micBLevel = get (ParamID::micBLevel);   raw.micBPhase = get (ParamID::micBPhase);   raw.micAlign = get (ParamID::micAlign);
+    raw.roomDist = get (ParamID::roomDist);
+}
+
+void CabBlock::updateMics() noexcept
+{
+    using namespace vf::dsp;
+    auto micType = [] (std::atomic<float>* v) { return static_cast<MicType> (juce::jlimit (0, 2, juce::roundToInt (v->load()))); };
+    MicSettings a, b;
+    a.enabled = true;
+    a.type = micType (raw.micType);
+    a.speaker = juce::roundToInt (raw.micASpeaker->load());
+    a.position = raw.micPos->load() / 10.0f;
+    a.distance = raw.micDist->load() / 10.0f;
+    a.angle = raw.micAAngle->load();
+    a.levelDb = raw.micALevel->load();
+    b.enabled = raw.micBOn->load() > 0.5f;
+    b.type = micType (raw.micBType);
+    b.speaker = juce::roundToInt (raw.micBSpeaker->load());
+    b.position = raw.micBPos->load() / 10.0f;
+    b.distance = raw.micBDist->load() / 10.0f;
+    b.angle = raw.micBAngle->load();
+    b.levelDb = raw.micBLevel->load();
+    b.invert = raw.micBPhase->load() > 0.5f;
+    const auto model = static_cast<CabModel> (juce::jlimit (0, static_cast<int> (CabModel::count) - 1, juce::roundToInt (raw.cabModel->load())));
+    mics.set (model, a, b, raw.micAlign->load() > 0.5f);
+    const float roomDistance = raw.roomDist->load() / 10.0f;
+    roomL.setDistance (roomDistance);
+    roomR.setDistance (roomDistance);
 }
 
 int CabBlock::sourceFromParams() const noexcept
@@ -35,7 +67,8 @@ void CabBlock::prepare (double sampleRate, int maxBlockSize)
     maxBlock = blockSize;
     work.setSize (3, blockSize, false, true, false);
 
-    cabinet.prepare (sampleRate);
+    updateMics();
+    mics.prepare (sampleRate);
     const juce::dsp::ProcessSpec mono { sampleRate, static_cast<juce::uint32> (blockSize), 1 };
     irA.prepare (mono);
     irB.prepare (mono);
@@ -58,6 +91,7 @@ void CabBlock::reset()
 {
     irA.reset();
     irB.reset();
+    mics.reset();
     for (auto* b : { &lowCutL, &lowCutR, &highCutL, &highCutR }) b->reset();
     roomL.prepare (currentRate);
     roomR.prepare (currentRate);
@@ -67,10 +101,7 @@ void CabBlock::process (float* l, float* r, int n) noexcept
 {
     if (! prepared) return;
 
-    cabinet.setParams (static_cast<vf::dsp::CabModel> (juce::jlimit (0, static_cast<int> (vf::dsp::CabModel::count) - 1, juce::roundToInt (raw.cabModel->load()))),
-                       raw.micPos->load() / 10.0f, raw.micDist->load() / 10.0f,
-                       static_cast<vf::dsp::MicType> (juce::jlimit (0, 2, juce::roundToInt (raw.micType->load()))));
-    cabinet.update();
+    updateMics();
     cabMix.setTargetValue (raw.cabOn->load() > 0.5f ? 1.0f : 0.0f);
     irBlend.setTargetValue (raw.irBlend->load() / 10.0f);
     roomAmount.setTargetValue (raw.room->load() / 10.0f * 0.8f);
@@ -125,7 +156,11 @@ void CabBlock::processChunk (float* outL, float* outR, int n) noexcept
         float l, r;
         if (src == 0)
         {
-            l = r = cabinet.process (dry);
+            float ma, mb;
+            mics.process (dry, ma, mb);
+            if (! mics.isMicBEnabled()) l = r = ma;
+            else if (stereo)            { l = ma; r = mb; }        // Stereo: mic A left, mic B right
+            else                        l = r = 0.5f * (ma + mb);  // summed: same level as one mic
         }
         else if (src == 1)
         {

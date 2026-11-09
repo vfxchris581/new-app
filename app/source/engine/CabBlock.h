@@ -5,9 +5,11 @@
 #include "vf/Parameters.h"
 #include "vf/dsp/Biquad.h"
 #include "vf/dsp/Cabinet.h"
+#include "vf/dsp/CabMics.h"
 #include "vf/fx/Effect.h"
 
-/** One cabinet in the signal chain: built-in cab (with mic type/position/distance),
+/** One cabinet in the signal chain: built-in cab miked by one or two placeable
+    mics (speaker, position, distance, angle, type, level, polarity, time align),
     IR A, or IR A + B (blend or true stereo, B phase flip), then low/high cut and
     room. Mono in (L+R), stereo out. Cab 1 reads the original parameter IDs and
     state keys; Cab 2 the "cab2_" ones. */
@@ -35,10 +37,12 @@ private:
     struct Raw
     {
         std::atomic<float>* cabOn, *cabModel, *micPos, *micDist, *cabSource, *micType, *irBlend, *irPhaseB,
-            *cabLowCut, *cabHighCut, *room, *cabStereo;
+            *cabLowCut, *cabHighCut, *room, *cabStereo,
+            *micASpeaker, *micAAngle, *micALevel, *micBOn, *micBSpeaker, *micBPos, *micBDist, *micBAngle,
+            *micBType, *micBLevel, *micBPhase, *micAlign, *roomDist;
     } raw {};
 
-    vf::dsp::CabinetSim cabinet;
+    vf::dsp::CabMics mics;
     juce::dsp::Convolution irA, irB;
     vf::dsp::Biquad lowCutL, lowCutR, highCutL, highCutR;
     vf::dsp::RoomAmbience roomL, roomR;
@@ -69,6 +73,7 @@ private:
     std::atomic<bool> irReady[2] { false, false };
 
     int sourceFromParams() const noexcept;
+    void updateMics() noexcept;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CabBlock)
 };

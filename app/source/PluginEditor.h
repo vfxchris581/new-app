@@ -4,6 +4,7 @@
 #include "PluginProcessor.h"
 #include "ui/Panels.h"
 #include "ui/Pedalboard.h"
+#include "ui/CabRoom.h"
 #include "ui/ViridianLookAndFeel.h"
 
 class ViridianForgeEditor : public juce::AudioProcessorEditor,
@@ -40,6 +41,7 @@ private:
     AmpHeadPanel ampHead1, ampHead2;
     CabPanel cabPanel1, cabPanel2;
     EffectEditor effectEditor;
+    CabRoomView cabRoom1, cabRoom2;
     Pedalboard pedalboard;
     AboutOverlay about;
     std::unique_ptr<SplashOverlay> splash;

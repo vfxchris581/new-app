@@ -13,13 +13,16 @@ struct BiquadCoeffs
 {
     double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0; // normalised (a0 == 1)
 
-    /** Magnitude response at `freq` Hz (used by tests and UI curve drawing). */
-    double magnitudeAt (double freq, double sampleRate) const noexcept
+    /** Complex frequency response at `freq` Hz. */
+    std::complex<double> responseAt (double freq, double sampleRate) const noexcept
     {
         const double w = 2.0 * vf::dsp::kPi * freq / sampleRate;
         const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
-        return std::abs ((b0 + b1 * z1 + b2 * z2) / (1.0 + a1 * z1 + a2 * z2));
+        return (b0 + b1 * z1 + b2 * z2) / (1.0 + a1 * z1 + a2 * z2);
     }
+
+    /** Magnitude response at `freq` Hz (used by tests and UI curve drawing). */
+    double magnitudeAt (double freq, double sampleRate) const noexcept { return std::abs (responseAt (freq, sampleRate)); }
 
     static BiquadCoeffs lowPass (double fs, double f, double q)    { return make (fs, f, q, 0.0, Type::lowPass); }
     static BiquadCoeffs highPass (double fs, double f, double q)   { return make (fs, f, q, 0.0, Type::highPass); }
