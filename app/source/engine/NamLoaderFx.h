@@ -30,7 +30,7 @@ public:
 private:
     vf::nam::Engine engine;
     std::vector<float> mono;
-    int pLevel = -1;
+    int pInput = -1, pLevel = -1;
 };
 
 std::unique_ptr<vf::fx::Effect> makeNamLoader();

@@ -7,6 +7,7 @@
 
 NamLoaderFx::NamLoaderFx()
 {
+    pInput = addParam (vf::fx::levelDb ("Input", 0.0f));   // default 0 dB
     pLevel = addParam (vf::fx::levelDb ("Level", 0.0f));
 }
 
@@ -21,12 +22,13 @@ void NamLoaderFx::prepare (double sampleRate, int maxBlockSize)
 void NamLoaderFx::process (float* l, float* r, int n) noexcept
 {
     if (mono.empty()) return;
+    const float gIn = juce::Decibels::decibelsToGain (v (pInput));
     const float g = juce::Decibels::decibelsToGain (v (pLevel));
     for (int start = 0; start < n; start += maxBlock)
     {
         const int m = std::min (maxBlock, n - start);
         for (int i = 0; i < m; ++i)
-            mono[static_cast<size_t> (i)] = 0.5f * (l[start + i] + r[start + i]);
+            mono[static_cast<size_t> (i)] = gIn * 0.5f * (l[start + i] + r[start + i]);
         engine.process (mono.data(), m);
         for (int i = 0; i < m; ++i)
             l[start + i] = r[start + i] = mono[static_cast<size_t> (i)] * g;
