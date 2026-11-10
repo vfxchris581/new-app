@@ -10,6 +10,7 @@
 #include "dsp/RoomEnvironment.h"
 #include "models/AmpModels.h"
 #include <array>
+#include <tuple>
 
 namespace vf
 {
@@ -115,7 +116,8 @@ inline constexpr std::array<const char*, 8> tubeSwapNames  { "Stock", "EL34", "6
 inline constexpr std::array<const char*, 2> ampSourceNames { "Model", "NAM" };
 inline constexpr std::array<const char*, 3> cabSourceNames { "Built-in", "IR A", "IR A + B" };
 inline constexpr std::array<const char*, 4> speakerNames   { "Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4" };
-inline constexpr std::array<const char*, 2> micFaceNames   { "Front", "Back" };
+inline constexpr std::array<const char*, 6> micFaceNames   { "Front", "Back", "Top", "Bottom", "Left", "Right" };
+inline constexpr float lastMicFace = static_cast<float> (std::tuple_size<decltype (micFaceNames)>::value) - 1.0f;
 inline constexpr float lastMicType = static_cast<float> (dsp::MicType::count) - 1.0f;
 inline constexpr float lastEnvironment = static_cast<float> (dsp::kNumEnvironments) - 1.0f;
 inline constexpr float defaultEnvironment = static_cast<float> (dsp::Environment::MediumStudio);
@@ -178,8 +180,8 @@ inline constexpr std::array<ParamSpec, 74> parameterSpecs {{
     { ParamID::micBPhase,     "Mic B Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micAlign,      "Mic Time Align", ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::roomDist,      "Room Distance",  ParamKind::Float,    0.0f, 10.0f,  3.0f, 0.01f, "",   5 },
-    { ParamID::micAFace,      "Mic A Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
-    { ParamID::micBFace,      "Mic B Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micAFace,      "Mic A Side",     ParamKind::Choice,   0.0f,  lastMicFace,  0.0f,  1.0f, "",   5 },
+    { ParamID::micBFace,      "Mic B Side",     ParamKind::Choice,   0.0f,  lastMicFace,  0.0f,  1.0f, "",   5 },
     { ParamID::micCOn,        "Mic C On",       ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micCSpeaker,   "Mic C Speaker",  ParamKind::Choice,   0.0f,  3.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micCPos,       "Mic C Position", ParamKind::Float,    0.0f, 10.0f,  6.0f, 0.01f, "",   5 },
@@ -188,7 +190,7 @@ inline constexpr std::array<ParamSpec, 74> parameterSpecs {{
     { ParamID::micCType,      "Mic C Type",     ParamKind::Choice,   0.0f, lastMicType, 1.0f, 1.0f, "", 5 },
     { ParamID::micCLevel,     "Mic C Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
     { ParamID::micCPhase,     "Mic C Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
-    { ParamID::micCFace,      "Mic C Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micCFace,      "Mic C Side",     ParamKind::Choice,   0.0f,  lastMicFace,  0.0f,  1.0f, "",   5 },
     { ParamID::micDOn,        "Mic D On",       ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micDSpeaker,   "Mic D Speaker",  ParamKind::Choice,   0.0f,  3.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micDPos,       "Mic D Position", ParamKind::Float,    0.0f, 10.0f,  6.0f, 0.01f, "",   5 },
@@ -197,7 +199,7 @@ inline constexpr std::array<ParamSpec, 74> parameterSpecs {{
     { ParamID::micDType,      "Mic D Type",     ParamKind::Choice,   0.0f, lastMicType, 1.0f, 1.0f, "", 5 },
     { ParamID::micDLevel,     "Mic D Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
     { ParamID::micDPhase,     "Mic D Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
-    { ParamID::micDFace,      "Mic D Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micDFace,      "Mic D Side",     ParamKind::Choice,   0.0f,  lastMicFace,  0.0f,  1.0f, "",   5 },
     { ParamID::roomEnv,       "Room",           ParamKind::Choice,   0.0f, lastEnvironment, defaultEnvironment, 1.0f, "", 5 },
     { ParamID::slotSpeaker1,  "Speaker 1 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
     { ParamID::slotSpeaker2,  "Speaker 2 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },

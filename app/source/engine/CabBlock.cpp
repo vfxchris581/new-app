@@ -52,7 +52,7 @@ void CabBlock::updateMics() noexcept
     a.distance = raw.micDist->load() / 10.0f;
     a.angle = raw.micAAngle->load();
     a.levelDb = raw.micALevel->load();
-    a.back = raw.micAFace->load() > 0.5f;
+    a.face = juce::jlimit (0, 5, juce::roundToInt (raw.micAFace->load()));
     b.enabled = raw.micBOn->load() > 0.5f;
     b.type = micType (raw.micBType);
     b.speaker = juce::roundToInt (raw.micBSpeaker->load());
@@ -61,7 +61,7 @@ void CabBlock::updateMics() noexcept
     b.angle = raw.micBAngle->load();
     b.levelDb = raw.micBLevel->load();
     b.invert = raw.micBPhase->load() > 0.5f;
-    b.back = raw.micBFace->load() > 0.5f;
+    b.face = juce::jlimit (0, 5, juce::roundToInt (raw.micBFace->load()));
     const auto model = static_cast<CabModel> (juce::jlimit (0, static_cast<int> (CabModel::count) - 1, juce::roundToInt (raw.cabModel->load())));
     // Speaker slot choice: 0 = the cab's own voice (-1), k = Speaker_k (a CabModel index).
     std::array<int, 4> slots { -1, -1, -1, -1 };
@@ -83,7 +83,7 @@ void CabBlock::updateMics() noexcept
         m.angle = r.angle->load();
         m.levelDb = r.level->load();
         m.invert = r.phase->load() > 0.5f;
-        m.back = r.face->load() > 0.5f;
+        m.face = juce::jlimit (0, 5, juce::roundToInt (r.face->load()));
         return m;
     };
     mics.set (model, std::array<MicSettings, CabMics::kMics> { a, b, readMic (raw.micC), readMic (raw.micD) }, raw.micAlign->load() > 0.5f);

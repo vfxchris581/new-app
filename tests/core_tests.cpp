@@ -888,6 +888,24 @@ int main()
             }
     });
 
+    test ("Side, top and bottom mics: quieter and duller than a front mic", []
+    {
+        auto resp = [] (int face, double f)
+        {
+            MicSettings m; m.distance = 0.1f; m.face = face;
+            MicSettings off; off.enabled = false;
+            CabMics mics; mics.prepare (48000.0); mics.set (CabModel::V30_4x12, m, off, false);
+            return mics.responseAt (0, f) * std::polar (1.0, 2.0 * kPi * f * static_cast<double> (mics.delaySamples (0)) / 48000.0);
+        };
+        const double frontMid = std::abs (resp (0, 1000.0)), frontHigh = std::abs (resp (0, 6000.0));
+        for (int face : { 2, 3, 4, 5 })
+        {
+            const char* names[] { "front", "back", "top", "bottom", "left", "right" };
+            check (std::abs (resp (face, 1000.0)) < frontMid * 0.6, std::string (names[face]) + " mic is quieter than the front");
+            check (std::abs (resp (face, 6000.0)) / std::abs (resp (face, 1000.0)) < frontHigh / frontMid, std::string (names[face]) + " mic is duller than the front");
+        }
+    });
+
     test ("Four mics: disabled mics are silent; the summed mono keeps one mic's level", []
     {
         MicSettings on; on.distance = 0.1f;
@@ -916,7 +934,7 @@ int main()
     {
         auto resp = [] (CabModel cab, bool back, double f)
         {
-            MicSettings m; m.distance = 0.1f; m.back = back;
+            MicSettings m; m.distance = 0.1f; m.face = back ? 1 : 0;
             MicSettings off; off.enabled = false;
             CabMics mics; mics.prepare (48000.0); mics.set (cab, m, off, false);
             return mics.responseAt (0, f) * std::polar (1.0, 2.0 * kPi * f * static_cast<double> (mics.delaySamples (0)) / 48000.0); // remove travel time
@@ -930,7 +948,7 @@ int main()
 
         // front + rear summed cancel the lows; flipping mic B brings them back
         MicSettings f; f.distance = 0.1f;
-        MicSettings r = f; r.back = true;
+        MicSettings r = f; r.face = 1;
         CabMics raw; raw.prepare (48000.0); raw.set (CabModel::Alnico2x12Open, f, r, true);
         MicSettings rf = r; rf.invert = true;
         CabMics fixed; fixed.prepare (48000.0); fixed.set (CabModel::Alnico2x12Open, f, rf, true);

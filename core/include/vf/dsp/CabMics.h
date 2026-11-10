@@ -24,6 +24,10 @@
 namespace vf::dsp
 {
 
+/** Which face of the cabinet a mic stands on. Front and back are the speaker-side views; the sides,
+    top and bottom hear the cabinet shell and room, so they are duller and quieter. */
+enum class MicFace { Front = 0, Back, Top, Bottom, Left, Right, count };
+
 struct MicSettings
 {
     bool enabled = true;
@@ -34,7 +38,7 @@ struct MicSettings
     float angle = 0.0f;       // degrees off-axis, 0..kMaxMicAngleDeg
     float levelDb = 0.0f;
     bool invert = false;
-    bool back = false;        // behind the cab instead of in front
+    int face = 0;             // MicFace: 0 Front, 1 Back, 2 Top, 3 Bottom, 4 Left, 5 Right
 };
 
 class CabMics
@@ -44,6 +48,8 @@ public:
     static constexpr int kMaxBleed = 3;
     static constexpr int kMics = 4;
     static constexpr float kRearPathCm = 14.0f;
+    static constexpr float kSidePathCm = 18.0f;   // from the speaker to a side, top or bottom wall
+    static constexpr float kSideLevel = 0.35f;    // about -9 dB: the shell is a poor place for a mic
 
     void prepare (double sampleRate)
     {
@@ -54,6 +60,7 @@ public:
             m.sim.prepare (fs);
             m.line.assign (len, 0.0f);
             m.bleedFilter.setCoeffs (BiquadCoeffs::lowPass (fs, 2600.0, 0.6));
+            m.sideFilter.setCoeffs (BiquadCoeffs::lowPass (fs, 3200.0, 0.7));
         }
         smoothing = static_cast<float> (1.0 - std::exp (-1.0 / (0.012 * fs)));
         configure (true);
@@ -68,6 +75,7 @@ public:
             std::fill (m.line.begin(), m.line.end(), 0.0f);
             m.writePos = 0;
             m.bleedFilter.reset();
+            m.sideFilter.reset();
             m.delay = m.targetDelay;
             m.bleedDelay = m.targetBleedDelay;
             m.gain = m.targetGain;
@@ -131,6 +139,7 @@ public:
         const auto lp = m.bleedFilter.getCoeffs().responseAt (freq, fs);
         for (size_t j = 0; j < static_cast<size_t> (m.numBleed); ++j)
             h += static_cast<double> (m.bleedGain[j]) * lp * std::polar (1.0, -w * static_cast<double> (m.targetBleedDelay[j]));
+        if (m.side) h *= m.sideFilter.getCoeffs().responseAt (freq, fs);
         return h * m.sim.responseAt (freq) * static_cast<double> (m.targetGain);
     }
 
@@ -155,7 +164,8 @@ private:
         CabinetSim sim;
         std::vector<float> line;
         size_t writePos = 0;
-        Biquad bleedFilter;
+        Biquad bleedFilter, sideFilter;
+        bool side = false;   // on a side, top or bottom face
         float delay = 0.0f, targetDelay = 0.0f, gain = 1.0f, targetGain = 1.0f;
         std::array<float, kMaxBleed> bleedDelay {}, targetBleedDelay {}, bleedGain {};
         int numBleed = 0;
@@ -173,13 +183,16 @@ private:
             const int spk = std::min (std::max (0, s.speaker), geo.speakers - 1);
             m.sim.setParams (cab, s.position, s.distance, s.type);
             m.sim.setPlacement (spk, s.angle);
-            m.sim.setBack (s.back);
+            const bool isBack = s.face == static_cast<int> (MicFace::Back);
+            const bool isSide = s.face >= static_cast<int> (MicFace::Top);
+            m.side = isSide;
+            m.sim.setBack (isBack);
             m.sim.setSlotVoices (slotVoices);
             m.sim.update();
 
             // Own speaker: straight-line distance (plus a little for the cone depth).
             const float dcm = std::max (0.0f, std::min (1.0f, s.distance)) * kMaxMicDistanceCm;
-            ownPath[k] = dcm + (s.back ? kRearPathCm : 1.0f);   // behind: the sound also travels the cab depth
+            ownPath[k] = dcm + (isBack ? kRearPathCm : (isSide ? kSidePathCm : 1.0f));   // behind or to a side: the sound also travels the cabinet
 
             // Other speakers: further away and arriving later; negligible right on the grille.
             m.numBleed = 0;
@@ -199,7 +212,7 @@ private:
             }
             // Behind the cab the cone moves the other way: the rear mic is out of polarity
             // (flip it, or use Time Align + Phase); a closed back is also much quieter.
-            const float rear = s.back ? (getCabinetSpec (cab).openBack ? -0.8f : -0.3f) : 1.0f;
+            const float rear = isBack ? (getCabinetSpec (cab).openBack ? -0.8f : -0.3f) : (isSide ? kSideLevel : 1.0f);
             m.targetGain = std::pow (10.0f, s.levelDb / 20.0f) * (s.invert ? -1.0f : 1.0f) * rear;
         }
         // Time align lines every enabled mic up with the furthest one.
@@ -254,6 +267,7 @@ private:
             y += m.bleedFilter.process (b);
         }
         m.writePos = (m.writePos + 1) % m.line.size();
+        if (m.side) y = m.sideFilter.process (y);
         return y * m.gain;
     }
 
