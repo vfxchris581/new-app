@@ -15,7 +15,7 @@ jobs:
     steps:
       - id: pick
         env:
-          TARGETS: ${{ vars.BUILD_TARGETS || 'macOS,Windows' }}
+          TARGETS: ${{ vars.BUILD_TARGETS || 'macOS' }}
         run: |
           json="["; sep=""
           for t in ${TARGETS//,/ }; do
