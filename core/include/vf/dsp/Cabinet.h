@@ -37,7 +37,8 @@ struct CabinetSpec
 };
 
 /** Cabinet models. IDs are stored in sessions: append only, never reorder. */
-enum class CabModel { American1x12Open = 0, Alnico2x12Open, Tweed4x10Open, Greenback4x12, V30_4x12, Modern4x12, British1x12Closed, RectOversize4x12, RectSlant4x12, PlexiT75_4x12, BritHeritage4x12, TeutonicV60_4x12, UberMix4x12, BlackDiesel4x12, FiftyOneFifty4x12, Sheffield4x12, Citrus4x12, EVMHeavy4x12, KrankMonster4x12, CreamClassic4x12, KiloK100_4x12, Swamp4x12, DjentPorted4x12, RearLoaded4x12, Rect2x12, Blackface2x12Open, Boutique2x12Open, Greenback2x12, V30_2x12, Teutonic2x12, FiftyOneFifty2x12, Citrus2x12, Dumble2x12Open, CreamMix2x12, Sheffield2x12, count };
+enum class CabModel { American1x12Open = 0, Alnico2x12Open, Tweed4x10Open, Greenback4x12, V30_4x12, Modern4x12, British1x12Closed, RectOversize4x12, RectSlant4x12, PlexiT75_4x12, BritHeritage4x12, TeutonicV60_4x12, UberMix4x12, BlackDiesel4x12, FiftyOneFifty4x12, Sheffield4x12, Citrus4x12, EVMHeavy4x12, KrankMonster4x12, CreamClassic4x12, KiloK100_4x12, Swamp4x12, DjentPorted4x12, RearLoaded4x12, Rect2x12, Blackface2x12Open, Boutique2x12Open, Greenback2x12, V30_2x12, Teutonic2x12, FiftyOneFifty2x12, Citrus2x12, Dumble2x12Open, CreamMix2x12, Sheffield2x12,
+    Speaker_1, Speaker_2, Speaker_3, Speaker_4, Speaker_5, Speaker_6, Speaker_7, Speaker_8, Speaker_9, Speaker_10, Speaker_11, Speaker_12, Speaker_13, count };
 
 inline const CabinetSpec& getCabinetSpec (CabModel m)
 {
@@ -77,6 +78,19 @@ inline const CabinetSpec& getCabinetSpec (CabModel m)
         { "2x12 Dumble Open", "EVM12L-style", "Dumble-style 2x12 with EVMs (open back)", 2, 12, true, 88.0f, 100.0f, 2.0f, 1.1f, 800.0f, -1.0f, 0.9f, 3200.0f, 2.0f, 6000.0f, 1.0f, 7500.0f, -1 },
         { "2x12 Cream Mix", "Creamback + Vintage 30", "Friedman 2x12 (V30 + Creamback)", 2, 12, false, 76.0f, 106.0f, 4.5f, 1.6f, 1150.0f, 2.0f, 1.0f, 2450.0f, 3.5f, 4100.0f, 2.5f, 5100.0f, 4 },
         { "2x12 Sheffield Closed", "Sheffield 1200-style", "Peavey 6505 2x12 (Sheffield 1200)", 2, 12, false, 70.0f, 96.0f, 5.5f, 1.5f, 500.0f, -5.0f, 0.9f, 3200.0f, 6.0f, 5700.0f, 4.0f, 6900.0f, -1 },
+        { "4x12 Olive 25 Vintage", "Olive 25 Vintage", "speaker voice (original voicing)", 4, 12, false, 62.0f, 92.4f, 3.1f, 1.3f, 980.0f, -1.5f, 1.3f, 2100.0f, 4.2f, 4370.0f, 2.2f, 5000.0f, -1 },
+        { "4x12 Blue Dome 30", "Blue Dome 30", "speaker voice (original voicing)", 4, 12, false, 70.0f, 90.0f, 4.0f, 1.4f, 627.0f, 1.5f, 1.0f, 2700.0f, 1.0f, 3741.0f, 3.0f, 4400.0f, -1 },
+        { "4x12 Gold 30 Modern", "Gold 30 Modern", "speaker voice (original voicing)", 4, 12, false, 72.0f, 112.0f, 4.0f, 1.8f, 1232.5f, -2.5f, 1.2f, 2800.0f, 9.0f, 5405.0f, 3.5f, 6500.0f, -1 },
+        { "4x12 Silver 30 Hi-Gain", "Silver 30 Hi-Gain", "speaker voice (original voicing)", 4, 12, false, 65.0f, 76.5f, 5.5f, 1.8f, 396.0f, -3.5f, 1.0f, 3300.0f, 2.0f, 4872.0f, 3.0f, 5600.0f, -1 },
+        { "4x12 Chrome 75 Twin", "Chrome 75 Twin", "speaker voice (original voicing)", 4, 12, false, 80.0f, 123.2f, 3.5f, 1.3f, 2320.0f, 3.0f, 0.9f, 3000.0f, 5.5f, 4830.0f, 2.0f, 6700.0f, -1 },
+        { "4x12 Orange 60 Heavy", "Orange 60 Heavy", "speaker voice (original voicing)", 4, 12, false, 68.0f, 82.8f, 5.0f, 1.5f, 462.0f, 1.0f, 1.1f, 2400.0f, 1.5f, 3480.0f, 2.5f, 4100.0f, -1 },
+        { "4x12 Red 70 Bright", "Red 70 Bright", "speaker voice (original voicing)", 4, 12, false, 74.0f, 117.6f, 3.8f, 1.5f, 2610.0f, 2.0f, 0.8f, 3600.0f, 8.5f, 5750.0f, 3.0f, 7800.0f, -1 },
+        { "4x12 Black 50 Thick", "Black 50 Thick", "speaker voice (original voicing)", 4, 12, false, 62.0f, 79.2f, 4.8f, 1.7f, 330.0f, 0.5f, 1.2f, 2000.0f, -1.0f, 3132.0f, 1.5f, 3400.0f, -1 },
+        { "4x12 Cream 25 Warm", "Cream 25 Warm", "speaker voice (original voicing)", 4, 12, false, 78.0f, 114.2f, 3.2f, 1.2f, 1595.0f, 2.0f, 1.0f, 2200.0f, 5.8f, 4485.0f, 2.0f, 5500.0f, -1 },
+        { "4x12 Cobalt 30 Crunch", "Cobalt 30 Crunch", "speaker voice (original voicing)", 4, 12, false, 66.0f, 86.4f, 4.6f, 1.6f, 594.0f, -1.0f, 1.1f, 3100.0f, 2.5f, 4524.0f, 3.8f, 5200.0f, -1 },
+        { "4x12 Slate 12 Scoop", "Slate 12 Scoop", "speaker voice (original voicing)", 4, 12, false, 75.0f, 109.8f, 4.1f, 1.4f, 2755.0f, -4.0f, 1.0f, 2900.0f, 7.0f, 5175.0f, 2.5f, 6300.0f, -1 },
+        { "4x12 Copper 35 Smooth", "Copper 35 Smooth", "speaker voice (original voicing)", 4, 12, false, 71.0f, 90.0f, 3.6f, 1.3f, 825.0f, 1.8f, 0.9f, 2500.0f, -0.8f, 3219.0f, 1.8f, 3800.0f, -1 },
+        { "4x12 Ivory 22 Chime", "Ivory 22 Chime", "speaker voice (original voicing)", 4, 12, false, 84.0f, 120.0f, 3.0f, 1.1f, 2175.0f, -2.5f, 0.8f, 4900.0f, 7.5f, 6440.0f, 3.2f, 8100.0f, -1 },
     }};
     return specs[static_cast<size_t> (std::min (static_cast<int> (m), static_cast<int> (CabModel::count) - 1))];
 }
@@ -158,7 +172,20 @@ inline constexpr std::array<const char*, static_cast<size_t> (CabModel::count)> 
     "2x12 Citrus Closed",
     "2x12 Dumble Open",
     "2x12 Cream Mix",
-    "2x12 Sheffield Closed"
+    "2x12 Sheffield Closed",
+    "4x12 Olive 25 Vintage",
+    "4x12 Blue Dome 30",
+    "4x12 Gold 30 Modern",
+    "4x12 Silver 30 Hi-Gain",
+    "4x12 Chrome 75 Twin",
+    "4x12 Orange 60 Heavy",
+    "4x12 Red 70 Bright",
+    "4x12 Black 50 Thick",
+    "4x12 Cream 25 Warm",
+    "4x12 Cobalt 30 Crunch",
+    "4x12 Slate 12 Scoop",
+    "4x12 Copper 35 Smooth",
+    "4x12 Ivory 22 Chime"
 };
 
 /** Physical layout of a cabinet's baffle (for mic placement and speaker bleed). */
