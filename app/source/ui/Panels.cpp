@@ -587,7 +587,6 @@ CabPanel::CabPanel (APVTS& s, ViridianForgeProcessor& processor, int cabIndex)
     for (int i = 0; i < 4; ++i)
     {
         speakerSlot[i] = std::make_unique<ChoiceBox> (s, ViridianForgeProcessor::cabPrefix (cabIndex) + slotIds[i], "Spk " + String (i + 1));
-        speakerSlot[i]->setTooltip ("Speaker voice for speaker " + String (i + 1) + " of this cabinet (Cab default keeps the cabinet's own)");
         addChildComponent (speakerSlot[i].get());
     }
 
