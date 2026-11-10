@@ -4,6 +4,24 @@
 #include "Widgets.h"
 #include "../PluginProcessor.h"
 
+/** Row of up to 10 NAM profile buttons for one amp: click a filled one to switch, an empty one to assign a capture. */
+class NamProfileBar : public juce::Component
+{
+public:
+    NamProfileBar (ViridianForgeProcessor& processor, int ampIndex);
+    void refresh();
+    void resized() override;
+
+private:
+    void slotClicked (int i);
+
+    ViridianForgeProcessor& processor;
+    int ampIndex;
+    juce::OwnedArray<juce::TextButton> buttons;
+    juce::TextButton clearButton { "CLR" };
+    std::unique_ptr<juce::FileChooser> chooser;
+};
+
 /** Rack-style header: brand, preset slot, tuner, CPU, meters, utility buttons. */
 class TopBar : public juce::Component
 {
@@ -48,6 +66,7 @@ private:
     ChoiceBox tubeSwap;
     juce::OwnedArray<LabeledFader> geq;
     FileSlot namSlot { "NAM CAPTURE", "NAM", "*.nam" };
+    std::unique_ptr<NamProfileBar> namProfiles;
     std::unique_ptr<juce::ParameterAttachment> sourceWatch;
     juce::String badgeName, badgeCategory;
     bool namMode = false, hasGeq = false;

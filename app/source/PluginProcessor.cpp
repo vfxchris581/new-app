@@ -531,6 +531,11 @@ void ViridianForgeProcessor::loadSlotNam (int slot, const juce::File& file)
 void ViridianForgeProcessor::loadNamModel (const juce::File& file, int amp)       { amps[juce::jlimit (0, 1, amp)]->loadNamModel (file, loader); }
 void ViridianForgeProcessor::unloadNamModel (int amp)                             { amps[juce::jlimit (0, 1, amp)]->unloadNamModel(); }
 FileSlotStatus ViridianForgeProcessor::getNamStatus (int amp) const               { return amps[juce::jlimit (0, 1, amp)]->getNamStatus(); }
+juce::String ViridianForgeProcessor::getNamProfilePath (int amp, int i) const      { return amps[juce::jlimit (0, 1, amp)]->namProfilePath (i); }
+int ViridianForgeProcessor::getNamActiveProfile (int amp) const                     { return amps[juce::jlimit (0, 1, amp)]->namActiveProfile(); }
+void ViridianForgeProcessor::setNamProfile (int amp, int i, const juce::File& f)   { amps[juce::jlimit (0, 1, amp)]->setNamProfile (i, f, loader); }
+void ViridianForgeProcessor::selectNamProfile (int amp, int i)                     { amps[juce::jlimit (0, 1, amp)]->selectNamProfile (i, loader); }
+void ViridianForgeProcessor::clearNamProfile (int amp, int i)                      { amps[juce::jlimit (0, 1, amp)]->clearNamProfile (i); }
 void ViridianForgeProcessor::loadImpulseResponse (int slot, const juce::File& f, int cab) { cabs[juce::jlimit (0, 1, cab)]->loadImpulseResponse (slot, f); }
 void ViridianForgeProcessor::clearImpulseResponse (int slot, int cab)             { cabs[juce::jlimit (0, 1, cab)]->clearImpulseResponse (slot); }
 FileSlotStatus ViridianForgeProcessor::getIrStatus (int slot, int cab) const      { return cabs[juce::jlimit (0, 1, cab)]->getIrStatus (slot); }

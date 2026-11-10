@@ -112,6 +112,8 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor, int amp
         addAndMakeVisible (c);
     addChildComponent (geqOn);
     addChildComponent (namSlot);
+    namProfiles = std::make_unique<NamProfileBar> (processor, ampIndex);
+    addChildComponent (*namProfiles);
 
     const char* geqLabels[] = { "80", "240", "750", "2.2k", "6.6k" };
     for (size_t b = 0; b < 5; ++b)
@@ -167,6 +169,7 @@ void AmpHeadPanel::updateMode()
     geqOn.setVisible (showGeq);
     for (auto* f : geq) f->setVisible (showGeq);
     namSlot.setVisible (namMode);
+    if (namProfiles) { namProfiles->setVisible (namMode); namProfiles->refresh(); }
     gain.getSlider().setTooltip (namMode ? "Drive into the NAM capture" : "Gain (double-click to reset)");
     master.getSlider().setTooltip (namMode ? "Output level after the NAM capture" : "Master: power-amp drive (double-click to reset)");
     resized();
@@ -283,6 +286,71 @@ void AmpHeadPanel::paint (Graphics& g)
     g.drawText (index == 0 ? "AMP 1" : "AMP 2", tag, Justification::centred);
 }
 
+NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p), ampIndex (amp)
+{
+    for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
+    {
+        auto* b = buttons.add (new TextButton (String (i + 1)));
+        b->setClickingTogglesState (false);
+        b->onClick = [this, i] { slotClicked (i); };
+        addAndMakeVisible (b);
+    }
+    clearButton.setTooltip ("Clear the active NAM profile");
+    clearButton.onClick = [this]
+    {
+        const int active = processor.getNamActiveProfile (ampIndex);
+        if (active >= 0) processor.clearNamProfile (ampIndex, active);
+        refresh();
+    };
+    addAndMakeVisible (clearButton);
+    refresh();
+}
+
+void NamProfileBar::refresh()
+{
+    const int active = processor.getNamActiveProfile (ampIndex);
+    for (int i = 0; i < buttons.size(); ++i)
+    {
+        const auto path = processor.getNamProfilePath (ampIndex, i);
+        auto* b = buttons[i];
+        b->setToggleState (i == active, dontSendNotification);
+        b->setAlpha (path.isEmpty() ? 0.45f : 1.0f);
+        b->setTooltip (path.isEmpty() ? "Empty: click to choose a .nam capture"
+                                      : "Switch to " + File (path).getFileName());
+    }
+}
+
+void NamProfileBar::resized()
+{
+    auto r = getLocalBounds();
+    clearButton.setBounds (r.removeFromRight (40).reduced (1, 0));
+    const int w = r.getWidth() / buttons.size();
+    for (int i = 0; i < buttons.size(); ++i)
+        buttons[i]->setBounds (r.removeFromLeft (w).reduced (1, 0));
+}
+
+void NamProfileBar::slotClicked (int i)
+{
+    if (processor.getNamProfilePath (ampIndex, i).isNotEmpty())
+    {
+        processor.selectNamProfile (ampIndex, i);
+        refresh();
+        return;
+    }
+    chooser = std::make_unique<FileChooser> ("Choose NAM profile " + String (i + 1), File(), "*.nam");
+    SafePointer<NamProfileBar> safe (this);
+    chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles,
+        [safe, i] (const FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (safe != nullptr && file.existsAsFile())
+            {
+                safe->processor.setNamProfile (safe->ampIndex, i, file);
+                safe->refresh();
+            }
+        });
+}
+
 void AmpHeadPanel::resized()
 {
     // Grille: source switch on the left, graphic EQ or NAM slot on the right
@@ -291,7 +359,9 @@ void AmpHeadPanel::resized()
     if (namMode)
     {
         const int w = grille.getWidth() * 52 / 100;
-        namSlot.setBounds (grille.removeFromRight (w).withSizeKeepingCentre (w, 64));
+        auto slotArea = grille.removeFromRight (w);
+        if (namProfiles) namProfiles->setBounds (slotArea.removeFromBottom (24).reduced (0, 2));
+        namSlot.setBounds (slotArea.withSizeKeepingCentre (w, jmin (64, slotArea.getHeight())));
     }
     else if (hasGeq)
     {

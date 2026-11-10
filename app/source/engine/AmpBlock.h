@@ -29,6 +29,14 @@ public:
     // NAM capture (message thread)
     void loadNamModel (const juce::File& file, juce::ThreadPool& loader);
     void unloadNamModel();
+
+    // NAM profiles: up to kNamProfiles captures per amp, switched between without reloading the list
+    static constexpr int kNamProfiles = 10;
+    juce::String namProfilePath (int i) const;
+    int namActiveProfile() const;                       // -1 when the loaded capture is not a profile
+    void setNamProfile (int i, const juce::File& file, juce::ThreadPool& loader);
+    void selectNamProfile (int i, juce::ThreadPool& loader);
+    void clearNamProfile (int i);
     FileSlotStatus getNamStatus() const;
     void restoreFromState (juce::ThreadPool& loader);
     void housekeeping();
@@ -41,6 +49,7 @@ private:
         float namDriveDb = 0.0f, namLevelDb = 0.0f;
         vf::dsp::ToneShaperSettings tone;
     };
+    void loadNamFile (const juce::File& file, juce::ThreadPool& loader);
     void readSettings (Settings&) const noexcept;
     void processMono (float* mono, int n, const Settings&) noexcept;
 

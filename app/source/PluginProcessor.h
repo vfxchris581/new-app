@@ -111,6 +111,12 @@ public:
     void loadNamModel (const juce::File& file, int amp = 0);
     void unloadNamModel (int amp = 0);
     FileSlotStatus getNamStatus (int amp = 0) const;
+    /** NAM profiles per amp (up to 10): assign, switch between and clear. */
+    juce::String getNamProfilePath (int amp, int i) const;
+    int getNamActiveProfile (int amp) const;
+    void setNamProfile (int amp, int i, const juce::File& file);
+    void selectNamProfile (int amp, int i);
+    void clearNamProfile (int amp, int i);
 
     void loadImpulseResponse (int slot, const juce::File& file, int cab = 0); // slot 0 = A, 1 = B
     void clearImpulseResponse (int slot, int cab = 0);

@@ -143,6 +143,13 @@ void AmpBlock::processMono (float* x, int n, const Settings& s) noexcept
 //==============================================================================
 void AmpBlock::loadNamModel (const juce::File& file, juce::ThreadPool& loader)
 {
+    // A plain load replaces whatever profile was active.
+    apvts.state.removeProperty (namKey + "_active", nullptr);
+    loadNamFile (file, loader);
+}
+
+void AmpBlock::loadNamFile (const juce::File& file, juce::ThreadPool& loader)
+{
    #if VF_WITH_NAM
     {
         const juce::ScopedLock sl (fileLock);
@@ -175,8 +182,43 @@ void AmpBlock::unloadNamModel()
     nam.unload();
    #endif
     apvts.state.removeProperty (namKey, nullptr);
+    apvts.state.removeProperty (namKey + "_active", nullptr);
     const juce::ScopedLock sl (fileLock);
     namStatus = {};
+}
+
+juce::String AmpBlock::namProfilePath (int i) const
+{
+    if (! juce::isPositiveAndBelow (i, kNamProfiles)) return {};
+    return apvts.state.getProperty (namKey + "_p" + juce::String (i)).toString();
+}
+
+int AmpBlock::namActiveProfile() const
+{
+    return static_cast<int> (apvts.state.getProperty (namKey + "_active", -1));
+}
+
+void AmpBlock::setNamProfile (int i, const juce::File& file, juce::ThreadPool& loader)
+{
+    if (! juce::isPositiveAndBelow (i, kNamProfiles)) return;
+    apvts.state.setProperty (namKey + "_p" + juce::String (i), file.getFullPathName(), nullptr);
+    selectNamProfile (i, loader);
+}
+
+void AmpBlock::selectNamProfile (int i, juce::ThreadPool& loader)
+{
+    const auto path = namProfilePath (i);
+    if (path.isEmpty()) return;
+    apvts.state.setProperty (namKey + "_active", i, nullptr);
+    loadNamFile (juce::File (path), loader);
+}
+
+void AmpBlock::clearNamProfile (int i)
+{
+    if (! juce::isPositiveAndBelow (i, kNamProfiles)) return;
+    const bool wasActive = namActiveProfile() == i;
+    apvts.state.removeProperty (namKey + "_p" + juce::String (i), nullptr);
+    if (wasActive) unloadNamModel();
 }
 
 FileSlotStatus AmpBlock::getNamStatus() const
@@ -188,7 +230,7 @@ FileSlotStatus AmpBlock::getNamStatus() const
 void AmpBlock::restoreFromState (juce::ThreadPool& loader)
 {
     const auto path = apvts.state.getProperty (namKey).toString();
-    if (path.isNotEmpty()) loadNamModel (juce::File (path), loader);
+    if (path.isNotEmpty()) loadNamFile (juce::File (path), loader);
     else if (getNamStatus().state != LoadState::Empty) unloadNamModel();
 }
 
