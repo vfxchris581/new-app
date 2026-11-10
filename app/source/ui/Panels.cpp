@@ -114,6 +114,7 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor, int amp
     addChildComponent (namSlot);
     namProfiles = std::make_unique<NamProfileBar> (processor, ampIndex);
     addChildComponent (*namProfiles);
+    namProfiles->onStyleChanged = [this] { resized(); };
 
     const char* geqLabels[] = { "80", "240", "750", "2.2k", "6.6k" };
     for (size_t b = 0; b < 5; ++b)
@@ -288,7 +289,16 @@ void AmpHeadPanel::paint (Graphics& g)
 
 NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p), ampIndex (amp)
 {
-    setTooltip ("NAM profiles: drag or scroll to turn, 1-10");
+    setTooltip ("NAM profiles 1-10");
+    knobStyle = processor.getState().state.getProperty ("namProfileStyle", "knob").toString() != "row";
+
+    for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
+    {
+        auto* b = rowButtons.add (new TextButton (String (i + 1)));
+        b->setClickingTogglesState (false);
+        b->onClick = [this, i] { slotClicked (i); };
+        addChildComponent (b);
+    }
     clearButton.setTooltip ("Clear the active NAM profile");
     clearButton.onClick = [this]
     {
@@ -296,15 +306,48 @@ NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p
         if (active >= 0) processor.clearNamProfile (ampIndex, active);
         refresh();
     };
+    styleButton.onClick = [this] { setStyle (! knobStyle); };
     addAndMakeVisible (clearButton);
+    addAndMakeVisible (styleButton);
+    setStyle (knobStyle);
     refresh();
+}
+
+void NamProfileBar::setStyle (bool knob)
+{
+    knobStyle = knob;
+    processor.getState().state.setProperty ("namProfileStyle", knob ? "knob" : "row", nullptr);
+    styleButton.setButtonText (knob ? "ROW" : "KNOB");
+    styleButton.setTooltip (knob ? "Show the 10 profiles as a row of buttons" : "Show the 10 profiles as a rotary knob");
+    for (auto* b : rowButtons) b->setVisible (! knob);
+    if (onStyleChanged) onStyleChanged();
+    repaint();
 }
 
 void NamProfileBar::refresh()
 {
     const int active = processor.getNamActiveProfile (ampIndex);
     if (active >= 0) pos = active;
+    for (int i = 0; i < rowButtons.size(); ++i)
+    {
+        const auto path = processor.getNamProfilePath (ampIndex, i);
+        auto* b = rowButtons[i];
+        b->setToggleState (i == active, dontSendNotification);
+        b->setAlpha (path.isEmpty() ? 0.45f : 1.0f);
+        b->setTooltip (path.isEmpty() ? "Empty: click to choose a .nam capture" : "Switch to " + File (path).getFileName());
+    }
     repaint();
+}
+
+void NamProfileBar::slotClicked (int i)
+{
+    if (processor.getNamProfilePath (ampIndex, i).isNotEmpty())
+    {
+        processor.selectNamProfile (ampIndex, i);
+        refresh();
+        return;
+    }
+    assignEmpty (i);
 }
 
 juce::Point<float> NamProfileBar::knobCentre() const
@@ -320,6 +363,7 @@ float NamProfileBar::knobRadius() const
 
 void NamProfileBar::paint (Graphics& g)
 {
+    if (! knobStyle) return;
     const auto c = knobCentre();
     const float R = knobRadius();
     const float start = -2.3562f, end = 2.3562f;   // -135 to +135 degrees, as on an amp
@@ -353,11 +397,24 @@ void NamProfileBar::paint (Graphics& g)
 
 void NamProfileBar::resized()
 {
-    clearButton.setBounds (getLocalBounds().removeFromBottom (18).withSizeKeepingCentre (40, 16));
+    if (knobStyle)
+    {
+        auto strip = getLocalBounds().removeFromBottom (18);
+        clearButton.setBounds (strip.removeFromLeft (getWidth() / 2).withSizeKeepingCentre (40, 16));
+        styleButton.setBounds (strip.withSizeKeepingCentre (48, 16));
+        return;
+    }
+    auto area = getLocalBounds();
+    auto tools = area.removeFromRight (128);
+    clearButton.setBounds (tools.removeFromLeft (44).reduced (2, 2));
+    styleButton.setBounds (tools.reduced (2, 2));
+    const int w = area.getWidth() / jmax (1, rowButtons.size());
+    for (auto* b : rowButtons) b->setBounds (area.removeFromLeft (w).reduced (1, 0));
 }
 
 void NamProfileBar::turnTo (int position, bool commit)
 {
+    if (! knobStyle) return;
     pos = jlimit (0, AmpBlock::kNamProfiles - 1, position);
     repaint();
     if (commit && processor.getNamProfilePath (ampIndex, pos).isNotEmpty())
@@ -366,6 +423,7 @@ void NamProfileBar::turnTo (int position, bool commit)
 
 void NamProfileBar::mouseDown (const MouseEvent& e)
 {
+    if (! knobStyle) return;
     dragStartY = e.position.y;
     dragStartPos = pos;
     dragged = false;
@@ -373,6 +431,7 @@ void NamProfileBar::mouseDown (const MouseEvent& e)
 
 void NamProfileBar::mouseDrag (const MouseEvent& e)
 {
+    if (! knobStyle) return;
     const int steps = roundToInt ((dragStartY - e.position.y) / 12.0f);
     if (steps == 0 && ! dragged) return;
     dragged = true;
@@ -381,7 +440,7 @@ void NamProfileBar::mouseDrag (const MouseEvent& e)
 
 void NamProfileBar::mouseUp (const MouseEvent&)
 {
-    if (! dragged) return;
+    if (! knobStyle || ! dragged) return;
     if (processor.getNamProfilePath (ampIndex, pos).isNotEmpty())
         processor.selectNamProfile (ampIndex, pos);
     else
@@ -390,6 +449,7 @@ void NamProfileBar::mouseUp (const MouseEvent&)
 
 void NamProfileBar::mouseWheelMove (const MouseEvent&, const MouseWheelDetails& w)
 {
+    if (! knobStyle) return;
     const int step = w.deltaY > 0 ? 1 : (w.deltaY < 0 ? -1 : 0);
     if (step == 0) return;
     turnTo (pos + step, true);
@@ -420,8 +480,18 @@ void AmpHeadPanel::resized()
     {
         const int w = grille.getWidth() * 52 / 100;
         auto slotArea = grille.removeFromRight (w);
-        if (namProfiles) namProfiles->setBounds (slotArea.removeFromLeft (110));
-        namSlot.setBounds (slotArea.withSizeKeepingCentre (slotArea.getWidth(), jmin (64, slotArea.getHeight())));
+        if (namProfiles && namProfiles->isKnobStyle())
+        {
+            // Knob beside the capture slot
+            namProfiles->setBounds (slotArea.removeFromLeft (110));
+            namSlot.setBounds (slotArea.withSizeKeepingCentre (slotArea.getWidth(), jmin (64, slotArea.getHeight())));
+        }
+        else
+        {
+            // Button row along the bottom of the capture slot
+            if (namProfiles) namProfiles->setBounds (slotArea.removeFromBottom (26).reduced (0, 2));
+            namSlot.setBounds (slotArea.withSizeKeepingCentre (slotArea.getWidth(), jmin (64, slotArea.getHeight())));
+        }
     }
     else if (hasGeq)
     {

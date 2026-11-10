@@ -11,6 +11,8 @@ class NamProfileBar : public juce::Component
 public:
     NamProfileBar (ViridianForgeProcessor& processor, int ampIndex);
     void refresh();
+    bool isKnobStyle() const noexcept { return knobStyle; }
+    std::function<void()> onStyleChanged;   // the panel relays out when the style flips
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -20,6 +22,8 @@ public:
 
 private:
     void turnTo (int position, bool commit);
+    void slotClicked (int i);
+    void setStyle (bool knob);
     void assignEmpty (int i);
     juce::Point<float> knobCentre() const;
     float knobRadius() const;
@@ -29,7 +33,9 @@ private:
     int pos = 0, dragStartPos = 0;
     float dragStartY = 0.0f;
     bool dragged = false;
-    juce::TextButton clearButton { "CLR" };
+    bool knobStyle = true;
+    juce::OwnedArray<juce::TextButton> rowButtons;
+    juce::TextButton clearButton { "CLR" }, styleButton;
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
