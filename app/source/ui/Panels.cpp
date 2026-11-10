@@ -299,7 +299,6 @@ NamProfileBackend ampNamBackend (ViridianForgeProcessor& p, int amp)
 NamProfileBar::NamProfileBar (NamProfileBackend backend, juce::ValueTree st)
     : be (std::move (backend)), styleState (st), styleSwitch (st.isValid())
 {
-    setTooltip ("NAM profiles 1-10");
     if (styleSwitch) knobStyle = styleState.getProperty ("namProfileStyle", "knob").toString() != "row";
 
     for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
