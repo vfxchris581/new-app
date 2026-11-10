@@ -72,10 +72,11 @@ private:
     enum class DragKind { None, Front, Side } dragKind = DragKind::None;
 
     // controls
-    juce::Label micALabel, micBLabel, roomLabel;
+    juce::Label micALabel, micBLabel, micCLabel, micDLabel, roomLabel;
     ChoiceBox typeA, typeB, faceA, faceB, environment;
-    LabeledKnob levelA, levelB, roomKnob, roomDistKnob;
-    LedSwitch micBOnSwitch, phaseB, align, stereo;
+    ChoiceBox typeC, typeD, faceC, faceD;
+    LabeledKnob levelA, levelB, levelC, levelD, roomKnob, roomDistKnob;
+    LedSwitch micBOnSwitch, phaseB, micCOnSwitch, micDOnSwitch, phaseC, phaseD, align, stereo;
     juce::TextButton frontButton { "FRONT" }, backButton { "BACK" }, cubeButton { "3D" };
     std::unique_ptr<CabCubeView> cube;   // the six-face view, shown in the front area when 3D is on
     bool cubeMode = false;

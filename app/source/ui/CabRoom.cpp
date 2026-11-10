@@ -10,7 +10,7 @@ static VFTheme themeOf (Component& c)
     return VFTheme::dark();
 }
 
-static const Colour kMicColour[2] { Colour (0xff3ee07a), Colour (0xffffa12e) };
+static const Colour kMicColour[4] { Colour (0xff3ee07a), Colour (0xffffa12e), Colour (0xffb78cff), Colour (0xff5aa9ff) };
 
 CabRoomView::CabRoomView (ViridianForgeProcessor& p, int cabIndex)
     : processor (p), state (p.getState()), index (cabIndex),
@@ -21,6 +21,16 @@ CabRoomView::CabRoomView (ViridianForgeProcessor& p, int cabIndex)
       environment (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::roomEnv, "Room Environment"),
       levelA (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micALevel, "Level"),
       levelB (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micBLevel, "Level"),
+      typeC (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micCType, "Mic C Type"),
+      typeD (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micDType, "Mic D Type"),
+      faceC (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micCFace, "Side"),
+      faceD (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micDFace, "Side"),
+      levelC (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micCLevel, "Level"),
+      levelD (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micDLevel, "Level"),
+      micCOnSwitch (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micCOn, "On"),
+      micDOnSwitch (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micDOn, "On"),
+      phaseC (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micCPhase, "Phase"),
+      phaseD (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micDPhase, "Phase"),
       roomKnob (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::room, "Level"),
       roomDistKnob (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::roomDist, "Dist"),
       micBOnSwitch (p.getState(), ViridianForgeProcessor::cabPrefix (cabIndex) + vf::ParamID::micBOn, "On"),
@@ -34,10 +44,14 @@ CabRoomView::CabRoomView (ViridianForgeProcessor& p, int cabIndex)
 
     micALabel.setText ("MIC A", dontSendNotification);
     micBLabel.setText ("MIC B", dontSendNotification);
+    micCLabel.setText ("MIC C", dontSendNotification);
+    micDLabel.setText ("MIC D", dontSendNotification);
+    micCLabel.setColour (Label::textColourId, kMicColour[2]);
+    micDLabel.setColour (Label::textColourId, kMicColour[3]);
     roomLabel.setText ("ROOM", dontSendNotification);
     micALabel.setColour (Label::textColourId, kMicColour[0]);
     micBLabel.setColour (Label::textColourId, kMicColour[1]);
-    for (auto* c : std::initializer_list<Component*> { &faceA, &faceB, &environment, &frontButton, &backButton })
+    for (auto* c : std::initializer_list<Component*> { &faceA, &faceB, &faceC, &faceD, &environment, &frontButton, &backButton })
         addAndMakeVisible (c);
     frontButton.setTooltip ("Show the front of the cab");
     backButton.setTooltip ("Show the back of the cab: mic the rear of an open-back cab, or through the back panel of a closed one");
@@ -55,8 +69,10 @@ CabRoomView::CabRoomView (ViridianForgeProcessor& p, int cabIndex)
         resized();
         repaint();
     };
-    for (auto* c : std::initializer_list<Component*> { &micALabel, &micBLabel, &roomLabel, &typeA, &typeB, &levelA, &levelB,
-                                                       &roomKnob, &roomDistKnob, &micBOnSwitch, &phaseB, &align, &stereo })
+    for (auto* c : std::initializer_list<Component*> { &micALabel, &micBLabel, &micCLabel, &micDLabel, &roomLabel, &typeA, &typeB,
+                                                       &typeC, &typeD, &levelA, &levelB, &levelC, &levelD,
+                                                       &roomKnob, &roomDistKnob, &micBOnSwitch, &phaseB,
+                                                       &micCOnSwitch, &micDOnSwitch, &phaseC, &phaseD, &align, &stereo })
         addAndMakeVisible (c);
 
     align.getButton().setTooltip ("Delay the closer mic so both arrive together: removes the comb filtering of two mics at different distances");
@@ -376,8 +392,8 @@ void CabRoomView::resized()
 
     // Controls: mic A, mic B, room, switches
     auto toggles = r.removeFromBottom (34);
-    const int rowH = r.getHeight() / 3;
-    auto rowA = r.removeFromTop (rowH), rowB = r.removeFromTop (rowH), rowC = r;
+    const int rowH = r.getHeight() / 5;
+    auto rowA = r.removeFromTop (rowH), rowB = r.removeFromTop (rowH), rowC = r.removeFromTop (rowH), rowD = r.removeFromTop (rowH), rowE = r;
     const int labelW = 46, knobW = jmin (58, r.getWidth() / 7), smallW = 48;
     auto choice = [] (ChoiceBox& c, Rectangle<int> area) { c.setBounds (area.reduced (2, 0).withSizeKeepingCentre (area.getWidth() - 4, jmin (44, area.getHeight()))); };
 
@@ -394,10 +410,24 @@ void CabRoomView::resized()
     levelB.setBounds (rowB.removeFromRight (knobW));
     choice (typeB, rowB);
 
-    roomLabel.setBounds (rowC.removeFromLeft (labelW));
-    roomDistKnob.setBounds (rowC.removeFromRight (knobW + 8));
-    roomKnob.setBounds (rowC.removeFromRight (knobW));
-    choice (environment, rowC);
+    micCLabel.setBounds (rowC.removeFromLeft (labelW));
+    micCOnSwitch.setBounds (rowC.removeFromLeft (smallW).withSizeKeepingCentre (smallW - 4, 36));
+    choice (faceC, rowC.removeFromLeft (64));
+    phaseC.setBounds (rowC.removeFromRight (smallW).withSizeKeepingCentre (smallW - 2, 36));
+    levelC.setBounds (rowC.removeFromRight (knobW));
+    choice (typeC, rowC);
+
+    micDLabel.setBounds (rowD.removeFromLeft (labelW));
+    micDOnSwitch.setBounds (rowD.removeFromLeft (smallW).withSizeKeepingCentre (smallW - 4, 36));
+    choice (faceD, rowD.removeFromLeft (64));
+    phaseD.setBounds (rowD.removeFromRight (smallW).withSizeKeepingCentre (smallW - 2, 36));
+    levelD.setBounds (rowD.removeFromRight (knobW));
+    choice (typeD, rowD);
+
+    roomLabel.setBounds (rowE.removeFromLeft (labelW));
+    roomDistKnob.setBounds (rowE.removeFromRight (knobW + 8));
+    roomKnob.setBounds (rowE.removeFromRight (knobW));
+    choice (environment, rowE);
 
     const int tw = toggles.getWidth() / 2;
     align.setBounds (toggles.removeFromLeft (tw).withSizeKeepingCentre (jmin (110, tw - 8), 30));
