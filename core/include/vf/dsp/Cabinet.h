@@ -222,6 +222,15 @@ inline const CabinetSpec& speakerVoice (CabModel m, int speakerIndex) noexcept
     return mixed ? getCabinetSpec (static_cast<CabModel> (c.mixWith)) : c;
 }
 
+/** Voice of one speaker slot when the player has chosen a speaker for it: overrideId is a CabModel index
+    (a speaker voice), or -1 to keep the cab's own voice for that slot. */
+inline const CabinetSpec& slotVoice (CabModel m, int speakerIndex, int overrideId) noexcept
+{
+    if (overrideId >= 0 && overrideId < static_cast<int> (CabModel::count))
+        return getCabinetSpec (static_cast<CabModel> (overrideId));
+    return speakerVoice (m, speakerIndex);
+}
+
 inline constexpr float kMaxMicDistanceCm = 30.0f;  // distance knob 10 = 30 cm off the grille
 inline constexpr float kMaxMicAngleDeg = 60.0f;
 
@@ -263,6 +272,12 @@ public:
         }
     }
 
+    /** Per-slot speaker choices for the cab's four speaker positions (-1 = the cab's own voice). */
+    void setSlotVoices (const std::array<int, 4>& ids) noexcept
+    {
+        if (ids != slotVoices) { slotVoices = ids; dirty = true; }
+    }
+
     /** Mic in front of the baffle (normal) or behind the cab. */
     void setBack (bool behind) noexcept
     {
@@ -281,7 +296,7 @@ public:
         static constexpr double variation[4] { 0.0, 1.0, -0.8, 0.5 };
         const int spk = std::min (std::max (0, speaker), getCabGeometry (current).speakers - 1);
         const double v = variation[spk];
-        const auto& sv = speakerVoice (current, spk);  // the miked speaker's voice (mixed cabs differ per speaker)
+        const auto& sv = slotVoice (current, spk, slotVoices[static_cast<size_t> (spk)]);  // the miked speaker's voice
         // Off-axis: the mic turns away from the dust cap; highs fall first.
         const double a = std::min (1.0, std::max (0.0, static_cast<double> (angle) / kMaxMicAngleDeg));
 
@@ -347,6 +362,7 @@ private:
     int speaker = 0;
     bool back = false;
     bool dirty = true;
+    std::array<int, 4> slotVoices { -1, -1, -1, -1 };
 };
 
 /** Small stereo room, as heard by a pair of room mics: early reflections off nearby

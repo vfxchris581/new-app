@@ -85,6 +85,12 @@ public:
 
     bool isMicBEnabled() const noexcept { return settings[1].enabled; }
 
+    /** Speaker choices for the cab's four speaker slots (-1 = the cab's own voice). */
+    void setSlotVoices (const std::array<int, 4>& ids) noexcept
+    {
+        if (ids != slotVoices) { slotVoices = ids; configure (false); }
+    }
+
     /** One input sample in, each mic's signal out (level, polarity and delay applied). */
     void process (float x, float& outA, float& outB) noexcept
     {
@@ -115,6 +121,8 @@ public:
     float delaySamples (int micIndex) const noexcept { return mics[static_cast<size_t> (micIndex)].targetDelay; }
 
 private:
+    std::array<int, 4> slotVoices { -1, -1, -1, -1 };
+
     struct Mic
     {
         CabinetSim sim;
@@ -138,6 +146,7 @@ private:
             m.sim.setParams (cab, s.position, s.distance, s.type);
             m.sim.setPlacement (spk, s.angle);
             m.sim.setBack (s.back);
+            m.sim.setSlotVoices (slotVoices);
             m.sim.update();
 
             // Own speaker: straight-line distance (plus a little for the cone depth).
