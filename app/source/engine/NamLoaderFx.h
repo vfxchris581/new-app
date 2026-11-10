@@ -3,6 +3,7 @@
 
 #include <JuceHeader.h>
 #include "vf/fx/Effect.h"
+#include "vf/dsp/ToneShaper.h"
 
 #if VF_WITH_NAM
 #include "vf/nam/NamEngine.h"
@@ -30,7 +31,8 @@ public:
 private:
     vf::nam::Engine engine;
     std::vector<float> mono;
-    int pInput = -1, pLevel = -1;
+    int pInput = -1, pLevel = -1, pTone = -1, pBass = -1, pMid = -1, pTreble = -1, pPresence = -1, pResonance = -1;
+    vf::dsp::ToneShaper tone;   // optional tone section after the capture
 };
 
 std::unique_ptr<vf::fx::Effect> makeNamLoader();
