@@ -134,6 +134,7 @@ private:
     ChannelSelector source;
     CabModelSelector cabModel;
     ChoiceBox micType;
+    std::unique_ptr<ChoiceBox> speakerSlot[4];  // one speaker voice per cab speaker slot
     LabeledKnob micPosition, micDistance, blend, lowCut, highCut, room;
     FileSlot irA { "IR A", "IRs", "*.wav;*.aif;*.aiff" }, irB { "IR B", "IRs", "*.wav;*.aif;*.aiff" };
     std::unique_ptr<juce::ParameterAttachment> modelWatch, sourceWatch;

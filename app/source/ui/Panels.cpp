@@ -583,6 +583,14 @@ CabPanel::CabPanel (APVTS& s, ViridianForgeProcessor& processor, int cabIndex)
     for (auto* c : std::initializer_list<Component*> { &cabModel, &micType, &micPosition, &micDistance, &irA, &irB, &blend, &phaseB })
         addChildComponent (c);
 
+    const char* slotIds[4] { vf::ParamID::slotSpeaker1, vf::ParamID::slotSpeaker2, vf::ParamID::slotSpeaker3, vf::ParamID::slotSpeaker4 };
+    for (int i = 0; i < 4; ++i)
+    {
+        speakerSlot[i] = std::make_unique<ChoiceBox> (s, ViridianForgeProcessor::cabPrefix (cabIndex) + slotIds[i], "Spk " + String (i + 1));
+        speakerSlot[i]->setTooltip ("Speaker voice for speaker " + String (i + 1) + " of this cabinet (Cab default keeps the cabinet's own)");
+        addChildComponent (speakerSlot[i].get());
+    }
+
     micPosition.getSlider().setTooltip ("Mic position: 0 = cone centre (bright), 10 = cone edge (dark)");
     micDistance.getSlider().setTooltip ("Mic distance: 0 = on the grille (more bass), 10 = further back");
     stereo.getButton().setTooltip ("IR A+B: A left / B right. Otherwise the room adds the stereo image.");
@@ -620,6 +628,8 @@ void CabPanel::updateMode()
     const bool builtIn = mode == 0;
     for (auto* c : std::initializer_list<Component*> { &cabModel, &micType, &micPosition, &micDistance })
         c->setVisible (builtIn);
+    for (auto& sp : speakerSlot)
+        sp->setVisible (builtIn);
     irA.setVisible (! builtIn);
     irB.setVisible (mode == 2);
     blend.setVisible (mode == 2);
@@ -631,7 +641,7 @@ void CabPanel::updateMode()
 Rectangle<float> CabPanel::cabArea() const
 {
     if (mode != 0 || ! micType.isVisible()) return {};
-    auto top = micType.getBottom() + 6, bottom = micPosition.getY() - 4;
+    auto top = speakerSlot[0]->getBottom() + 6, bottom = micPosition.getY() - 4;
     auto r = Rectangle<float> ((float) getX() * 0.0f + 14.0f, (float) top, (float) getWidth() - 28.0f, (float) jmax (0, bottom - top));
     return r.withSizeKeepingCentre (jmin (r.getWidth(), r.getHeight() * 1.1f), r.getHeight());
 }
@@ -706,6 +716,10 @@ void CabPanel::resized()
     {
         cabModel.setBounds (r.removeFromTop (40).reduced (2, 0));
         micType.setBounds (r.removeFromTop (40).reduced (2, 0));
+        auto speakers = r.removeFromTop (40);
+        const int sw = speakers.getWidth() / 4;
+        for (auto& sp : speakerSlot)
+            sp->setBounds (speakers.removeFromLeft (sw).reduced (2, 0));
         auto knobs = r.removeFromBottom (knobH);
         micPosition.setBounds (knobs.removeFromLeft (knobs.getWidth() / 2).reduced (4, 0));
         micDistance.setBounds (knobs.reduced (4, 0));
