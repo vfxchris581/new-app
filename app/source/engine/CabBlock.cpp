@@ -32,6 +32,8 @@ CabBlock::CabBlock (juce::AudioProcessorValueTreeState& state, const juce::Strin
     raw.micBLevel = get (ParamID::micBLevel);   raw.micBPhase = get (ParamID::micBPhase);   raw.micAlign = get (ParamID::micAlign);
     raw.roomDist = get (ParamID::roomDist);    raw.micAFace = get (ParamID::micAFace);     raw.micBFace = get (ParamID::micBFace);
     raw.roomEnv = get (ParamID::roomEnv);
+    raw.slotSpeaker[0] = get (ParamID::slotSpeaker1); raw.slotSpeaker[1] = get (ParamID::slotSpeaker2);
+    raw.slotSpeaker[2] = get (ParamID::slotSpeaker3); raw.slotSpeaker[3] = get (ParamID::slotSpeaker4);
 }
 
 void CabBlock::updateMics() noexcept
@@ -57,6 +59,15 @@ void CabBlock::updateMics() noexcept
     b.invert = raw.micBPhase->load() > 0.5f;
     b.back = raw.micBFace->load() > 0.5f;
     const auto model = static_cast<CabModel> (juce::jlimit (0, static_cast<int> (CabModel::count) - 1, juce::roundToInt (raw.cabModel->load())));
+    // Speaker slot choice: 0 = the cab's own voice (-1), k = Speaker_k (a CabModel index).
+    std::array<int, 4> slots { -1, -1, -1, -1 };
+    for (int i = 0; i < 4; ++i)
+    {
+        const int choice = juce::roundToInt (raw.slotSpeaker[i]->load());
+        if (choice > 0)
+            slots[static_cast<size_t> (i)] = static_cast<int> (CabModel::Speaker_1) + choice - 1;
+    }
+    mics.setSlotVoices (slots);
     mics.set (model, a, b, raw.micAlign->load() > 0.5f);
     roomMics.set (juce::roundToInt (raw.roomEnv->load()), raw.roomDist->load() / 10.0f);
 }

@@ -40,7 +40,8 @@ private:
         std::atomic<float>* cabOn, *cabModel, *micPos, *micDist, *cabSource, *micType, *irBlend, *irPhaseB,
             *cabLowCut, *cabHighCut, *room, *cabStereo,
             *micASpeaker, *micAAngle, *micALevel, *micBOn, *micBSpeaker, *micBPos, *micBDist, *micBAngle,
-            *micBType, *micBLevel, *micBPhase, *micAlign, *roomDist, *micAFace, *micBFace, *roomEnv;
+            *micBType, *micBLevel, *micBPhase, *micAlign, *roomDist, *micAFace, *micBFace, *roomEnv,
+            *slotSpeaker[4];
     } raw {};
 
     vf::dsp::CabMics mics;

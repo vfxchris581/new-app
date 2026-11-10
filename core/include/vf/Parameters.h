@@ -65,6 +65,11 @@ namespace ParamID
     inline constexpr const char* cabHighCut    = "cabHighCut";
     inline constexpr const char* room          = "room";
     inline constexpr const char* cabStereo     = "cabStereo";
+    // Per-cab speaker choice for each of the four speaker slots (0 = the cab's own voice)
+    inline constexpr const char* slotSpeaker1  = "slotSpeaker1";
+    inline constexpr const char* slotSpeaker2  = "slotSpeaker2";
+    inline constexpr const char* slotSpeaker3  = "slotSpeaker3";
+    inline constexpr const char* slotSpeaker4  = "slotSpeaker4";
     // Phase 4b: two-mic cab capture
     inline constexpr const char* micASpeaker   = "micASpeaker";
     inline constexpr const char* micAAngle     = "micAAngle";
@@ -101,7 +106,10 @@ inline constexpr float lastCabModel = static_cast<float> (dsp::CabModel::count) 
 inline constexpr float defaultAmpModel = static_cast<float> (models::AmpModelId::Plate59Lead);
 inline constexpr float defaultCabModel = static_cast<float> (dsp::CabModel::Greenback4x12);
 
-inline constexpr std::array<ParamSpec, 52> parameterSpecs {{
+/** Speaker slot choices: 0 = the cab's own voice, 1..13 = Speaker_1..Speaker_13. */
+inline constexpr float lastSlotSpeaker = static_cast<float> (dsp::CabModel::count) - static_cast<float> (dsp::CabModel::Speaker_1);
+
+inline constexpr std::array<ParamSpec, 56> parameterSpecs {{
     { ParamID::inputGain,     "Input",          ParamKind::Float,  -24.0f, 24.0f,  0.0f,  0.1f, "dB", 1 },
     { ParamID::gateEnabled,   "Gate On",        ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   1 },
     { ParamID::gateThreshold, "Gate Threshold", ParamKind::Float,  -96.0f, -20.0f, -70.0f, 0.1f, "dB", 1 },
@@ -154,6 +162,10 @@ inline constexpr std::array<ParamSpec, 52> parameterSpecs {{
     { ParamID::micAFace,      "Mic A Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micBFace,      "Mic B Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::roomEnv,       "Room",           ParamKind::Choice,   0.0f, lastEnvironment, defaultEnvironment, 1.0f, "", 5 },
+    { ParamID::slotSpeaker1,  "Speaker 1 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
+    { ParamID::slotSpeaker2,  "Speaker 2 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
+    { ParamID::slotSpeaker3,  "Speaker 3 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
+    { ParamID::slotSpeaker4,  "Speaker 4 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
 }};
 
 //==============================================================================
@@ -168,10 +180,11 @@ inline constexpr std::array<const char*, 20> ampParamIds {
     ParamID::geq2200, ParamID::geq6600 };
 
 /** Parameters owned by a cab block; Cab 2 uses them prefixed with "cab2_". */
-inline constexpr std::array<const char*, 28> cabParamIds {
+inline constexpr std::array<const char*, 32> cabParamIds {
     ParamID::cabEnabled, ParamID::cabModel, ParamID::micPosition, ParamID::micDistance, ParamID::cabSource,
     ParamID::micType, ParamID::irBlend, ParamID::irPhaseB, ParamID::cabLowCut, ParamID::cabHighCut,
-    ParamID::room, ParamID::cabStereo,
+    ParamID::room, ParamID::cabStereo, ParamID::slotSpeaker1, ParamID::slotSpeaker2, ParamID::slotSpeaker3,
+    ParamID::slotSpeaker4,
     ParamID::micASpeaker, ParamID::micAAngle, ParamID::micALevel, ParamID::micBOn, ParamID::micBSpeaker,
     ParamID::micBPos, ParamID::micBDist, ParamID::micBAngle, ParamID::micBType, ParamID::micBLevel,
     ParamID::micBPhase, ParamID::micAlign, ParamID::roomDist, ParamID::micAFace, ParamID::micBFace, ParamID::roomEnv };

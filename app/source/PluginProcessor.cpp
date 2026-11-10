@@ -39,6 +39,13 @@ void addSpec (juce::AudioProcessorValueTreeState::ParameterLayout& layout, const
             else if (base == ParamID::cabSource) choices = toStringArray (cabSourceNames);
             else if (base == ParamID::micBType)  choices = toStringArray (vf::dsp::micTypeNames);
             else if (base == ParamID::micASpeaker || base == ParamID::micBSpeaker) choices = toStringArray (speakerNames);
+            else if (base == ParamID::slotSpeaker1 || base == ParamID::slotSpeaker2
+                  || base == ParamID::slotSpeaker3 || base == ParamID::slotSpeaker4)
+            {
+                choices.add ("Cab default");
+                for (int s = static_cast<int> (vf::dsp::CabModel::Speaker_1); s < static_cast<int> (vf::dsp::CabModel::count); ++s)
+                    choices.add (vf::dsp::cabModelNames[static_cast<size_t> (s)]);
+            }
             else if (base == ParamID::micAFace || base == ParamID::micBFace) choices = toStringArray (micFaceNames);
             else if (base == ParamID::roomEnv)
                 for (int e = 0; e < vf::dsp::kNumEnvironments; ++e) choices.add (vf::dsp::getEnvironmentSpec (static_cast<vf::dsp::Environment> (e)).name);
