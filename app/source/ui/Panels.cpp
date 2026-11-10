@@ -137,6 +137,14 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor, int amp
     }
 
     model.onModelChanged = [this] (int m) { modelChanged (m); };
+    model.onUserPick = [this] (int m)
+    {
+        // Models with a built-in cab (e.g. Dual Rect V30) bring their cab with them when the player picks them
+        const auto& spec = vf::models::getAmpModel (m);
+        if (spec.defaultCab < 0) return;
+        if (auto* p = state.getParameter (ViridianForgeProcessor::cabPrefix (0) + vf::ParamID::cabModel))
+            p->setValueNotifyingHost (p->convertTo0to1 ((float) spec.defaultCab));
+    };
     sourceWatch = std::make_unique<ParameterAttachment> (*s.getParameter (ViridianForgeProcessor::ampPrefix (ampIndex) + vf::ParamID::ampSource), [this] (float v)
     {
         namMode = v > 0.5f;

@@ -72,6 +72,7 @@ public:
     AmpModelSelector (APVTS& state, const juce::String& paramId);
     void resized() override;
     std::function<void (int)> onModelChanged;
+    std::function<void (int)> onUserPick;   // only when the player picks a model, not on load
     int getModel() const noexcept { return current; }
 
 private:

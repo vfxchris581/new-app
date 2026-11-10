@@ -69,6 +69,7 @@ struct AmpModelSpec
     int numChannels;
     std::array<ChannelSpec, 3> channels;
     bool hasGEQ = false;      // Mesa-style post-gain 5-band graphic EQ
+    int defaultCab = -1;      // CabModel index to attach by default (-1 = none)
 };
 
 namespace detail
@@ -315,11 +316,11 @@ inline const std::array<AmpModelSpec, static_cast<size_t> (kNumAmpModels)>& ampM
              channel ("Mark VII", 5, {{ S (1.0f, 14500.0f, 350.0f, 2.0f), S (0.4f, 12000.0f), C (1.0f, 6400.0f, 0.0f, 0.0f, 200.0f, 30.0f), H (0.3f, 6200.0f), S (0.35f, 7000.0f) }}, 1, 1, 1700.0f, 6.0f, -62.0f) }}, true },
 
         // ------------------------------------------------------------ Mesa Rectifier family (39-43)
-        { "Sierra Dual Rect", "Mesa/Boogie Dual Rectifier", AmpCategory::AmericanHighGain,
+        { "Sierra Dual Rect V30", "Mesa/Boogie Dual Rectifier with V30 4x12", AmpCategory::AmericanHighGain,
           detail::recto(), pw (PowerTube::SixL6, 0.6f, 0.85f, 1.25f), 3,
           {{ detail::withStack (channel ("Clean", 2, {{ S (1.0f, 14000.0f), S (0.3f, 11000.0f) }}, 1, 1, 1500.0f, 6.0f), "Sierra Clean EQ", 470, 22, 47, 100),
              channel ("Vintage", 4, {{ S (1.0f, 12500.0f, 600.0f, 4.0f), C (1.0f, 7000.0f), H (0.3f, 6000.0f), S (0.25f, 5500.0f) }}, 1, 4, 1800.0f, 5.0f, -60.0f),
-             channel ("Modern", 4, {{ S (1.0f, 13000.0f, 700.0f, 5.0f), C (1.0f, 7000.0f, 0.0f, 0.0f, 170.0f), H (0.3f, 6000.0f), S (0.3f, 6500.0f) }}, 1, 4, 1800.0f, 5.0f, -65.0f) }} },
+             channel ("Modern", 4, {{ S (1.0f, 13000.0f, 700.0f, 5.0f), C (1.0f, 7000.0f, 0.0f, 0.0f, 170.0f), H (0.3f, 6000.0f), S (0.3f, 6500.0f) }}, 1, 4, 1800.0f, 5.0f, -65.0f) }}, false, 4 },
         { "Sierra Triple Rect", "Mesa/Boogie Triple Rectifier", AmpCategory::AmericanHighGain,
           detail::recto(), pw (PowerTube::SixL6, 0.65f, 0.9f, 1.6f), 3,
           {{ detail::withStack (channel ("Clean", 2, {{ S (1.0f, 14500.0f), S (0.28f, 11500.0f) }}, 1, 1, 1500.0f, 6.0f), "Sierra Clean EQ", 250, 22, 22, 56),

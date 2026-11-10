@@ -144,7 +144,12 @@ AmpModelSelector::AmpModelSelector (APVTS& state, const String& paramId)
                         + ". Names are trademarks of their owners; no affiliation implied.");
         if (onModelChanged) onModelChanged (current);
     });
-    box.onChange = [this] { if (box.getSelectedId() > 0) attachment->setValueAsCompleteGesture ((float) (box.getSelectedId() - 1)); };
+    box.onChange = [this]
+    {
+        if (box.getSelectedId() <= 0) return;
+        attachment->setValueAsCompleteGesture ((float) (box.getSelectedId() - 1));
+        if (onUserPick) onUserPick (box.getSelectedId() - 1);
+    };
     attachment->sendInitialUpdate();
 }
 

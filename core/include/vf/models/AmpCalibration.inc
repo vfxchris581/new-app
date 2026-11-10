@@ -38,7 +38,7 @@
 {{ 0.6931f, 0.2035f, 0.2019f }}, // Sierra Mk IV
 {{ 1.2588f, 0.2526f, 0.1843f }}, // Sierra Mk V
 {{ 0.9511f, 0.1787f, 0.1774f }}, // Sierra Mk VII
-{{ 1.7986f, 0.2529f, 0.2743f }}, // Sierra Dual Rect
+{{ 1.7986f, 0.2529f, 0.2743f }}, // Sierra Dual Rect V30
 {{ 1.0411f, 0.2483f, 0.2801f }}, // Sierra Triple Rect
 {{ 1.2203f, 0.3801f, 1.0000f }}, // Sierra Single Rect
 {{ 2.2817f, 0.8239f, 0.2715f }}, // Sierra Road King
