@@ -1,0 +1,38 @@
+name: Measure NAM captures
+
+on:
+  workflow_dispatch:
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch NAM core with Eigen
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/sdatkinson/NeuralAmpModelerCore.git nam_core
+
+      - name: Build harness
+        run: |
+          g++ -std=c++17 -O2 \
+            -I nam_core -I nam_core/Dependencies/eigen -I nam_core/Dependencies/nlohmann \
+            tools/measure/run_capture.cpp nam_core/NAM/*.cpp nam_core/NAM/wavenet/*.cpp \
+            -o measure_capture
+
+      - name: Run captures
+        run: |
+          mkdir -p measure_out
+          ./measure_capture tools/measure/captures/mesa_dr_capture1.nam measure_out/capture1.f32
+          ./measure_capture tools/measure/captures/mesa_dr_hexdrive.nam measure_out/hexdrive.f32
+
+      - name: Analyse
+        run: |
+          python3 -m pip install --quiet numpy
+          python3 tools/measure/analyze.py measure_out/capture1.f32 capture1 | tee measure_out/capture1.json
+          python3 tools/measure/analyze.py measure_out/hexdrive.f32 hexdrive | tee measure_out/hexdrive.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: measure-results
+          path: measure_out/*.json
