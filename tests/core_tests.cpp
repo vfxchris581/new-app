@@ -888,6 +888,30 @@ int main()
             }
     });
 
+    test ("Four mics: disabled mics are silent; the summed mono keeps one mic's level", []
+    {
+        MicSettings on; on.distance = 0.1f;
+        MicSettings off; off.enabled = false;
+        CabMics one; one.prepare (48000.0);
+        one.set (CabModel::V30_4x12, on, off, false);
+        CabMics four; four.prepare (48000.0);
+        four.set (CabModel::V30_4x12, std::array<MicSettings, CabMics::kMics> { on, off, off, off }, false);
+        check (four.enabledCount() == 1, "one mic enabled");
+        // A single enabled mic: the mono mix is that mic alone.
+        const double f = 1000.0;
+        check (std::abs (four.monoResponseAt (f) - one.responseAt (0, f)) < 1e-9, "one mic: mono mix is that mic");
+
+        CabMics quad; quad.prepare (48000.0);
+        quad.set (CabModel::V30_4x12, std::array<MicSettings, CabMics::kMics> { on, on, on, on }, false);
+        check (quad.enabledCount() == 4, "four mics enabled");
+        float out[CabMics::kMics] {};
+        std::array<float, CabMics::kMics> mo {};
+        for (int i = 0; i < 4800; ++i) quad.process (0.5f, mo);
+        for (int k = 0; k < CabMics::kMics; ++k) out[k] = mo[static_cast<size_t> (k)];
+        check (std::isfinite (out[3]), "four mics run without blowing up");
+        check (std::abs (quad.monoResponseAt (f)) < 1.5 * std::abs (one.responseAt (0, f)) + 1e-9, "four mics: summed level is about one mic's, not four times");
+    });
+
     test ("Mic behind the cab: reversed polarity, darker; closed back is muffled and quiet", []
     {
         auto resp = [] (CabModel cab, bool back, double f)

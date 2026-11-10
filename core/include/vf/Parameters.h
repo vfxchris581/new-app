@@ -70,6 +70,25 @@ namespace ParamID
     inline constexpr const char* slotSpeaker2  = "slotSpeaker2";
     inline constexpr const char* slotSpeaker3  = "slotSpeaker3";
     inline constexpr const char* slotSpeaker4  = "slotSpeaker4";
+    // Mics C and D (mic A/B above): same controls as mic B
+    inline constexpr const char* micCOn = "micCOn";
+    inline constexpr const char* micCSpeaker = "micCSpeaker";
+    inline constexpr const char* micCPos = "micCPos";
+    inline constexpr const char* micCDist = "micCDist";
+    inline constexpr const char* micCAngle = "micCAngle";
+    inline constexpr const char* micCLevel = "micCLevel";
+    inline constexpr const char* micCType = "micCType";
+    inline constexpr const char* micCPhase = "micCPhase";
+    inline constexpr const char* micCFace = "micCFace";
+    inline constexpr const char* micDOn = "micDOn";
+    inline constexpr const char* micDSpeaker = "micDSpeaker";
+    inline constexpr const char* micDPos = "micDPos";
+    inline constexpr const char* micDDist = "micDDist";
+    inline constexpr const char* micDAngle = "micDAngle";
+    inline constexpr const char* micDLevel = "micDLevel";
+    inline constexpr const char* micDType = "micDType";
+    inline constexpr const char* micDPhase = "micDPhase";
+    inline constexpr const char* micDFace = "micDFace";
     // Phase 4b: two-mic cab capture
     inline constexpr const char* micASpeaker   = "micASpeaker";
     inline constexpr const char* micAAngle     = "micAAngle";
@@ -109,7 +128,7 @@ inline constexpr float defaultCabModel = static_cast<float> (dsp::CabModel::Gree
 /** Speaker slot choices: 0 = the cab's own voice, 1..13 = Speaker_1..Speaker_13. */
 inline constexpr float lastSlotSpeaker = static_cast<float> (dsp::CabModel::count) - static_cast<float> (dsp::CabModel::Speaker_1);
 
-inline constexpr std::array<ParamSpec, 56> parameterSpecs {{
+inline constexpr std::array<ParamSpec, 74> parameterSpecs {{
     { ParamID::inputGain,     "Input",          ParamKind::Float,  -24.0f, 24.0f,  0.0f,  0.1f, "dB", 1 },
     { ParamID::gateEnabled,   "Gate On",        ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   1 },
     { ParamID::gateThreshold, "Gate Threshold", ParamKind::Float,  -96.0f, -20.0f, -70.0f, 0.1f, "dB", 1 },
@@ -161,6 +180,24 @@ inline constexpr std::array<ParamSpec, 56> parameterSpecs {{
     { ParamID::roomDist,      "Room Distance",  ParamKind::Float,    0.0f, 10.0f,  3.0f, 0.01f, "",   5 },
     { ParamID::micAFace,      "Mic A Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micBFace,      "Mic B Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micCOn,        "Mic C On",       ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micCSpeaker,   "Mic C Speaker",  ParamKind::Choice,   0.0f,  3.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micCPos,       "Mic C Position", ParamKind::Float,    0.0f, 10.0f,  6.0f, 0.01f, "",   5 },
+    { ParamID::micCDist,      "Mic C Distance", ParamKind::Float,    0.0f, 10.0f,  4.0f, 0.01f, "",   5 },
+    { ParamID::micCAngle,     "Mic C Angle",    ParamKind::Float,    0.0f, 60.0f,  0.0f,  0.1f, "deg", 5 },
+    { ParamID::micCType,      "Mic C Type",     ParamKind::Choice,   0.0f, lastMicType, 1.0f, 1.0f, "", 5 },
+    { ParamID::micCLevel,     "Mic C Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
+    { ParamID::micCPhase,     "Mic C Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micCFace,      "Mic C Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micDOn,        "Mic D On",       ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micDSpeaker,   "Mic D Speaker",  ParamKind::Choice,   0.0f,  3.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micDPos,       "Mic D Position", ParamKind::Float,    0.0f, 10.0f,  6.0f, 0.01f, "",   5 },
+    { ParamID::micDDist,      "Mic D Distance", ParamKind::Float,    0.0f, 10.0f,  4.0f, 0.01f, "",   5 },
+    { ParamID::micDAngle,     "Mic D Angle",    ParamKind::Float,    0.0f, 60.0f,  0.0f,  0.1f, "deg", 5 },
+    { ParamID::micDType,      "Mic D Type",     ParamKind::Choice,   0.0f, lastMicType, 1.0f, 1.0f, "", 5 },
+    { ParamID::micDLevel,     "Mic D Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
+    { ParamID::micDPhase,     "Mic D Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
+    { ParamID::micDFace,      "Mic D Side",     ParamKind::Choice,   0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::roomEnv,       "Room",           ParamKind::Choice,   0.0f, lastEnvironment, defaultEnvironment, 1.0f, "", 5 },
     { ParamID::slotSpeaker1,  "Speaker 1 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
     { ParamID::slotSpeaker2,  "Speaker 2 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
@@ -180,14 +217,15 @@ inline constexpr std::array<const char*, 20> ampParamIds {
     ParamID::geq2200, ParamID::geq6600 };
 
 /** Parameters owned by a cab block; Cab 2 uses them prefixed with "cab2_". */
-inline constexpr std::array<const char*, 32> cabParamIds {
+inline constexpr std::array<const char*, 50> cabParamIds {
     ParamID::cabEnabled, ParamID::cabModel, ParamID::micPosition, ParamID::micDistance, ParamID::cabSource,
     ParamID::micType, ParamID::irBlend, ParamID::irPhaseB, ParamID::cabLowCut, ParamID::cabHighCut,
     ParamID::room, ParamID::cabStereo, ParamID::slotSpeaker1, ParamID::slotSpeaker2, ParamID::slotSpeaker3,
     ParamID::slotSpeaker4,
     ParamID::micASpeaker, ParamID::micAAngle, ParamID::micALevel, ParamID::micBOn, ParamID::micBSpeaker,
     ParamID::micBPos, ParamID::micBDist, ParamID::micBAngle, ParamID::micBType, ParamID::micBLevel,
-    ParamID::micBPhase, ParamID::micAlign, ParamID::roomDist, ParamID::micAFace, ParamID::micBFace, ParamID::roomEnv };
+    ParamID::micBPhase, ParamID::micAlign, ParamID::roomDist, ParamID::micAFace, ParamID::micBFace, ParamID::roomEnv,
+    ParamID::micCOn, ParamID::micCSpeaker, ParamID::micCPos, ParamID::micCDist, ParamID::micCAngle, ParamID::micCLevel, ParamID::micCType, ParamID::micCPhase, ParamID::micCFace, ParamID::micDOn, ParamID::micDSpeaker, ParamID::micDPos, ParamID::micDDist, ParamID::micDAngle, ParamID::micDLevel, ParamID::micDType, ParamID::micDPhase, ParamID::micDFace };
 
 inline constexpr const char* amp2Prefix = "amp2_";
 inline constexpr const char* cab2Prefix = "cab2_";

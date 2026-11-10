@@ -1,6 +1,6 @@
 // Viridian Forge — DSP core (JUCE-independent)
 //
-// Two-microphone cabinet capture. Each mic has its own position on a chosen
+// Up to four-microphone cabinet capture. Each mic has its own position on a chosen
 // speaker (cone centre .. edge), distance from the grille, off-axis angle, type,
 // level and polarity. What the physics adds on top of the single-mic model:
 //
@@ -42,6 +42,7 @@ class CabMics
 public:
     static constexpr double kSpeedOfSoundCmPerSec = 34300.0;
     static constexpr int kMaxBleed = 3;
+    static constexpr int kMics = 4;
     static constexpr float kRearPathCm = 14.0f;
 
     void prepare (double sampleRate)
@@ -73,17 +74,31 @@ public:
         }
     }
 
-    /** Call once per block. */
-    void set (CabModel model, const MicSettings& a, const MicSettings& b, bool timeAlign) noexcept
+    /** Call once per block. All four mics; disabled mics are silent and cost nothing. */
+    void set (CabModel model, const std::array<MicSettings, kMics>& mics4, bool timeAlign) noexcept
     {
         cab = model;
-        settings[0] = a;
-        settings[1] = b;
+        settings = mics4;
         align = timeAlign;
         configure (false);
     }
 
+    /** Two-mic form (A and B; C and D off), kept for the two-mic callers. */
+    void set (CabModel model, const MicSettings& a, const MicSettings& b, bool timeAlign) noexcept
+    {
+        set (model, std::array<MicSettings, kMics> { a, b, MicSettings { false }, MicSettings { false } }, timeAlign);
+    }
+
+    bool isMicEnabled (int micIndex) const noexcept { return settings[static_cast<size_t> (micIndex)].enabled; }
     bool isMicBEnabled() const noexcept { return settings[1].enabled; }
+
+    /** How many mics are on: the summed output is the average of the enabled mics, so adding mics keeps the level. */
+    int enabledCount() const noexcept
+    {
+        int n = 0;
+        for (const auto& s : settings) n += s.enabled ? 1 : 0;
+        return n;
+    }
 
     /** Speaker choices for the cab's four speaker slots (-1 = the cab's own voice). */
     void setSlotVoices (const std::array<int, 4>& ids) noexcept
@@ -91,11 +106,20 @@ public:
         if (ids != slotVoices) { slotVoices = ids; configure (false); }
     }
 
-    /** One input sample in, each mic's signal out (level, polarity and delay applied). */
+    /** One input sample in, each mic's signal out (level, polarity and delay applied; 0 for a mic that is off). */
+    void process (float x, std::array<float, kMics>& out) noexcept
+    {
+        for (int k = 0; k < kMics; ++k)
+            out[static_cast<size_t> (k)] = settings[static_cast<size_t> (k)].enabled ? processMic (k, x) : 0.0f;
+    }
+
+    /** Two-output form: mic A and mic B (for the two-mic callers). */
     void process (float x, float& outA, float& outB) noexcept
     {
-        outA = processMic (0, x);
-        outB = settings[1].enabled ? processMic (1, x) : 0.0f;
+        std::array<float, kMics> mo {};
+        process (x, mo);
+        outA = mo[0];
+        outB = mo[1];
     }
 
     /** Frequency response of one mic as configured (for tests and the UI curve). */
@@ -110,11 +134,14 @@ public:
         return h * m.sim.responseAt (freq) * static_cast<double> (m.targetGain);
     }
 
-    /** The mix a listener hears with both mics summed in mono (B halves the sum so enabling it keeps the level). */
+    /** The mix a listener hears with the enabled mics summed in mono (averaged, so the level stays the same). */
     std::complex<double> monoResponseAt (double freq) const noexcept
     {
-        if (! settings[1].enabled) return responseAt (0, freq);
-        return 0.5 * (responseAt (0, freq) + responseAt (1, freq));
+        std::complex<double> sum = 0.0;
+        int n = 0;
+        for (int k = 0; k < kMics; ++k)
+            if (settings[static_cast<size_t> (k)].enabled) { sum += responseAt (k, freq); ++n; }
+        return n > 0 ? sum / static_cast<double> (n) : std::complex<double> (0.0);
     }
 
     /** Arrival delay of a mic in samples (after time alignment). */
@@ -137,11 +164,12 @@ private:
     void configure (bool snap) noexcept
     {
         const auto geo = getCabGeometry (cab);
-        float ownPath[2] {};
-        for (int k = 0; k < 2; ++k)
+        std::array<float, kMics> ownPath {};
+        for (int k = 0; k < kMics; ++k)
         {
             const auto& s = settings[static_cast<size_t> (k)];
             auto& m = mics[static_cast<size_t> (k)];
+            if (! s.enabled) { m.targetGain = 0.0f; m.numBleed = 0; continue; }
             const int spk = std::min (std::max (0, s.speaker), geo.speakers - 1);
             m.sim.setParams (cab, s.position, s.distance, s.type);
             m.sim.setPlacement (spk, s.angle);
@@ -174,13 +202,17 @@ private:
             const float rear = s.back ? (getCabinetSpec (cab).openBack ? -0.8f : -0.3f) : 1.0f;
             m.targetGain = std::pow (10.0f, s.levelDb / 20.0f) * (s.invert ? -1.0f : 1.0f) * rear;
         }
-        const float common = settings[1].enabled ? std::max (ownPath[0], ownPath[1]) : ownPath[0];
+        // Time align lines every enabled mic up with the furthest one.
+        float common = 0.0f;
+        for (int k = 0; k < kMics; ++k)
+            if (settings[static_cast<size_t> (k)].enabled) common = std::max (common, ownPath[static_cast<size_t> (k)]);
         const float cmToSamples = static_cast<float> (fs / kSpeedOfSoundCmPerSec);
-        for (int k = 0; k < 2; ++k)
+        for (int k = 0; k < kMics; ++k)
         {
+            if (! settings[static_cast<size_t> (k)].enabled) continue;
             auto& m = mics[static_cast<size_t> (k)];
-            const float extra = align ? common - ownPath[k] : 0.0f;  // delay the closer mic to line both up
-            m.targetDelay = (ownPath[k] + extra) * cmToSamples;
+            const float extra = align ? common - ownPath[static_cast<size_t> (k)] : 0.0f;  // delay the closer mic to line both up
+            m.targetDelay = (ownPath[static_cast<size_t> (k)] + extra) * cmToSamples;
             for (int j = 0; j < m.numBleed; ++j)
                 m.targetBleedDelay[static_cast<size_t> (j)] = (m.targetBleedDelay[static_cast<size_t> (j)] + extra) * cmToSamples;
             if (snap)
@@ -228,8 +260,8 @@ private:
     double fs = 48000.0;
     float smoothing = 0.002f;
     CabModel cab = CabModel::Greenback4x12;
-    std::array<MicSettings, 2> settings { MicSettings {}, MicSettings { false } };
-    std::array<Mic, 2> mics;
+    std::array<MicSettings, kMics> settings { MicSettings {}, MicSettings { false }, MicSettings { false }, MicSettings { false } };
+    std::array<Mic, kMics> mics;
     bool align = false;
 };
 

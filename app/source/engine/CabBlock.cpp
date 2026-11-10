@@ -34,6 +34,10 @@ CabBlock::CabBlock (juce::AudioProcessorValueTreeState& state, const juce::Strin
     raw.roomEnv = get (ParamID::roomEnv);
     raw.slotSpeaker[0] = get (ParamID::slotSpeaker1); raw.slotSpeaker[1] = get (ParamID::slotSpeaker2);
     raw.slotSpeaker[2] = get (ParamID::slotSpeaker3); raw.slotSpeaker[3] = get (ParamID::slotSpeaker4);
+    raw.micC = { get (ParamID::micCOn), get (ParamID::micCSpeaker), get (ParamID::micCPos), get (ParamID::micCDist), get (ParamID::micCAngle),
+                 get (ParamID::micCLevel), get (ParamID::micCType), get (ParamID::micCPhase), get (ParamID::micCFace) };
+    raw.micD = { get (ParamID::micDOn), get (ParamID::micDSpeaker), get (ParamID::micDPos), get (ParamID::micDDist), get (ParamID::micDAngle),
+                 get (ParamID::micDLevel), get (ParamID::micDType), get (ParamID::micDPhase), get (ParamID::micDFace) };
 }
 
 void CabBlock::updateMics() noexcept
@@ -68,7 +72,21 @@ void CabBlock::updateMics() noexcept
             slots[static_cast<size_t> (i)] = static_cast<int> (CabModel::Speaker_1) + choice - 1;
     }
     mics.setSlotVoices (slots);
-    mics.set (model, a, b, raw.micAlign->load() > 0.5f);
+    auto readMic = [&] (const Raw::MicRaw& r)
+    {
+        MicSettings m;
+        m.enabled = r.on->load() > 0.5f;
+        m.type = micType (r.type);
+        m.speaker = juce::roundToInt (r.speaker->load());
+        m.position = r.pos->load() / 10.0f;
+        m.distance = r.dist->load() / 10.0f;
+        m.angle = r.angle->load();
+        m.levelDb = r.level->load();
+        m.invert = r.phase->load() > 0.5f;
+        m.back = r.face->load() > 0.5f;
+        return m;
+    };
+    mics.set (model, std::array<MicSettings, CabMics::kMics> { a, b, readMic (raw.micC), readMic (raw.micD) }, raw.micAlign->load() > 0.5f);
     roomMics.set (juce::roundToInt (raw.roomEnv->load()), raw.roomDist->load() / 10.0f);
 }
 
@@ -176,11 +194,18 @@ void CabBlock::processChunk (float* outL, float* outR, int n) noexcept
         float l, r;
         if (src == 0)
         {
-            float ma, mb;
-            mics.process (dry, ma, mb);
-            if (! mics.isMicBEnabled()) l = r = ma;
-            else if (stereo)            { l = ma; r = mb; }        // Stereo: mic A left, mic B right
-            else                        l = r = 0.5f * (ma + mb);  // summed: same level as one mic
+            std::array<float, vf::dsp::CabMics::kMics> mo {};
+            mics.process (dry, mo);
+            if (stereo && mics.isMicBEnabled()) { l = mo[0]; r = mo[1]; }  // Stereo: mic A left, mic B right
+            else
+            {
+                // Summed: the average of the enabled mics, so the level matches one mic.
+                float sum = 0.0f;
+                for (int k = 0; k < vf::dsp::CabMics::kMics; ++k)
+                    if (mics.isMicEnabled (k)) sum += mo[static_cast<size_t> (k)];
+                const int n = mics.enabledCount();
+                l = r = n > 0 ? sum / static_cast<float> (n) : 0.0f;
+            }
         }
         else if (src == 1)
         {
