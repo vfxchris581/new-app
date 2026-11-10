@@ -33,7 +33,7 @@ private:
     void setValue (const char* id, float plain);
 
     ViridianForgeProcessor& processor;
-    APVTS& state;
+    juce::AudioProcessorValueTreeState& state;
     int index;
     vf::dsp::cabfaces::View view;
     int dragMic = -1;
