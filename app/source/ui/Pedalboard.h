@@ -116,4 +116,8 @@ private:
     std::unique_ptr<juce::ParameterAttachment> onWatch;
     bool isOn = true;
     juce::TextButton typeButton { "CHANGE" }, duplicateButton { "DUPLICATE" }, removeButton { "REMOVE" };
+    juce::TextButton loadNamButton { "LOAD .NAM" };
+    juce::Label namLabel;
+    void chooseNamFile();
+    std::unique_ptr<juce::FileChooser> namChooser;
 };

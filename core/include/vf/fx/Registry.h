@@ -63,6 +63,14 @@ namespace detail
     template <int... I> constexpr std::array<Factory, sizeof...(I)> reverbs (std::integer_sequence<int, I...>) { return { &reverb<I>... }; }
 }
 
+/** Types the app adds at startup (e.g. the NAM loader, which needs the NAM library that core cannot link).
+    Register from a static initialiser; they are appended to the list when effectTypes() is first built. */
+inline std::vector<FxType>& extraEffectTypes()
+{
+    static std::vector<FxType> extra;
+    return extra;
+}
+
 /** All effect types, in browser order (grouped by category). Built once, off the audio thread. */
 inline const std::vector<FxType>& effectTypes()
 {
@@ -70,7 +78,7 @@ inline const std::vector<FxType>& effectTypes()
     {
         using namespace detail;
         using C = FxCategory;
-        std::vector<FxType> t;
+        std::vector<FxType> t = extraEffectTypes();
         auto add = [&t] (const char* id, const char* name, C c, const char* insp, Factory f) { t.push_back ({ id, name, c, insp, f }); };
         auto addAll = [&t] (const char* prefix, C c, const auto& voicings, const auto& fns)
         {

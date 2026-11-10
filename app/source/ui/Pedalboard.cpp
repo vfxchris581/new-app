@@ -634,8 +634,13 @@ private:
 
 EffectEditor::EffectEditor (ViridianForgeProcessor& p) : processor (p)
 {
-    for (auto* b : { &typeButton, &duplicateButton, &removeButton })
+    for (auto* b : { &typeButton, &duplicateButton, &removeButton, &loadNamButton })
         addAndMakeVisible (b);
+    namLabel.setFont (juce::Font (13.0f));
+    namLabel.setMinimumHorizontalScale (0.6f);
+    addChildComponent (namLabel);
+    loadNamButton.setVisible (false);
+    loadNamButton.onClick = [this] { chooseNamFile(); };
     typeButton.setTooltip ("Swap this block for another effect");
     typeButton.onClick = [this]
     {
@@ -655,6 +660,7 @@ EffectEditor::EffectEditor (ViridianForgeProcessor& p) : processor (p)
             [safeThis] (int r) { if (safeThis != nullptr && r > 0) safeThis->processor.changeEffectType (safeThis->slot, r - 1); });
     };
     duplicateButton.onClick = [this] { processor.duplicateEffect (slot); };
+    loadNamButton.setTooltip ("Choose a .nam capture for this block");
     removeButton.onClick = [this] { processor.removeBlock (slot); };
     processor.addChangeListener (this);
 }
@@ -676,11 +682,32 @@ void EffectEditor::changeListenerCallback (ChangeBroadcaster*)
     if (slot >= 0 && processor.getSlotType (slot) != builtType) rebuild();
 }
 
+void EffectEditor::chooseNamFile()
+{
+    namChooser = std::make_unique<juce::FileChooser> ("Choose a NAM capture", juce::File(), "*.nam");
+    SafePointer<EffectEditor> safeThis (this);
+    namChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis] (const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (safeThis != nullptr && file.existsAsFile())
+                safeThis->processor.loadSlotNam (safeThis->slot, file);
+        });
+}
+
 void EffectEditor::rebuild()
 {
     controls.clear();
     onWatch.reset();
     builtType = processor.getSlotType (slot);
+    const bool isNam = builtType >= 0 && vf::fx::effectTypes()[(size_t) builtType].id == "nam.loader";
+    loadNamButton.setVisible (isNam);
+    namLabel.setVisible (isNam);
+    if (isNam)
+    {
+        const auto path = processor.slotNamPath (slot);
+        namLabel.setText (path.isEmpty() ? juce::String ("no capture loaded") : juce::File (path).getFileName(), juce::dontSendNotification);
+    }
     if (slot >= 0 && builtType >= 0)
     {
         const auto& pl = ViridianForgeProcessor::typeParams (builtType);
@@ -717,6 +744,12 @@ void EffectEditor::resized()
     removeButton.setBounds (top.removeFromRight (84).reduced (2, 2));
     duplicateButton.setBounds (top.removeFromRight (96).reduced (2, 2));
     typeButton.setBounds (top.removeFromRight (84).reduced (2, 2));
+    const bool isNam = loadNamButton.isVisible();
+    if (isNam)
+    {
+        loadNamButton.setBounds (top.removeFromLeft (110).reduced (2, 2));
+        namLabel.setBounds (top.reduced (4, 2));
+    }
 
     auto e = enclosure().toNearestInt();
     auto area = e.reduced (e.getWidth() / 16, 0).withTrimmedTop (e.getHeight() * 30 / 100).withTrimmedBottom (e.getHeight() * 30 / 100);

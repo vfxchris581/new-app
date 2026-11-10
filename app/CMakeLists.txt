@@ -38,6 +38,7 @@ target_sources(ViridianForge PRIVATE
     source/PluginEditor.cpp
     source/engine/AmpBlock.cpp
     source/engine/CabBlock.cpp
+    source/engine/NamLoaderFx.cpp
     source/ui/ViridianLookAndFeel.cpp
     source/ui/Widgets.cpp
     source/ui/Panels.cpp

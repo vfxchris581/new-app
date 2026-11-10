@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#if VF_WITH_NAM
+#include "engine/NamLoaderFx.h"
+#endif
 
 using namespace vf;
 using vf::graph::kNumFxSlots;
@@ -296,6 +299,7 @@ void ViridianForgeProcessor::removeBlock (int key)
     {
         slotTypeIndex[static_cast<size_t> (key)].store (-1);
         slotFx[static_cast<size_t> (key)].reset(); // the live plan keeps it until it is retired
+        apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (key)), nullptr);
     }
     commitChain();
 }
@@ -364,6 +368,9 @@ void ViridianForgeProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     for (auto& a : amps) a->prepare (sampleRate, maxChunk);
     for (auto& c : cabs) c->prepare (sampleRate, maxChunk);
     for (auto& fx : slotFx) if (fx != nullptr) fx->prepare (sampleRate, maxChunk);
+    for (int k = 0; k < kNumFxSlots; ++k)
+        if (slotFx[static_cast<size_t> (k)] != nullptr && slotNamPath (k).isNotEmpty())
+            loadSlotNam (k, juce::File (slotNamPath (k)));
     engine.prepareAll (sampleRate, maxChunk); // also re-prepares blocks still in a live/pending plan
 
     gate.prepare (sampleRate);
@@ -495,6 +502,30 @@ juce::File ViridianForgeProcessor::importIntoLibrary (const juce::File& source, 
     if (dest == source) return source;
     if (dest.existsAsFile()) dest = dest.getNonexistentSibling();
     return source.copyFileTo (dest) ? dest : source;
+}
+
+juce::String ViridianForgeProcessor::slotNamPath (int slot) const
+{
+    if (slot < 0 || slot >= kNumFxSlots) return {};
+    return apvts.state.getProperty (juce::Identifier ("slotNam" + juce::String (slot))).toString();
+}
+
+void ViridianForgeProcessor::loadSlotNam (int slot, const juce::File& file)
+{
+   #if VF_WITH_NAM
+    if (slot < 0 || slot >= kNumFxSlots) return;
+    auto fx = slotFx[static_cast<size_t> (slot)];
+    if (dynamic_cast<NamLoaderFx*> (fx.get()) == nullptr) return;
+    apvts.state.setProperty (juce::Identifier ("slotNam" + juce::String (slot)), file.getFullPathName(), nullptr);
+    // The job keeps the instance alive; a failed load leaves the previous capture in place.
+    loader.addJob ([fx, path = file.getFullPathName().toStdString()]
+    {
+        std::string error;
+        static_cast<NamLoaderFx*> (fx.get())->loadFile (path, error);
+    });
+   #else
+    juce::ignoreUnused (slot, file);
+   #endif
 }
 
 void ViridianForgeProcessor::loadNamModel (const juce::File& file, int amp)       { amps[juce::jlimit (0, 1, amp)]->loadNamModel (file, loader); }

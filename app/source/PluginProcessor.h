@@ -93,6 +93,9 @@ public:
     void removeBlock (int key);
     void setSplit (bool on);
     int freeSlotCount() const noexcept;
+    /** NAM loader block: load a .nam capture into a slot (message thread; the work runs on the loader pool). */
+    void loadSlotNam (int slot, const juce::File& file);   // NAM loader block: load a capture (any thread)
+    juce::String slotNamPath (int slot) const;              // saved capture path for a NAM loader slot
 
     /** Host parameter IDs for blocks. */
     static juce::String slotOnId (int slot)              { return "fx" + juce::String (slot + 1) + "_on"; }
