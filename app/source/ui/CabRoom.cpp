@@ -91,6 +91,8 @@ CabRoomView::MicState CabRoomView::mic (int m) const
         s = { roundToInt (value (micASpeaker)), value (micPosition) / 10.0f, value (micDistance) / 10.0f, value (micAAngle), 0.0f, true, roundToInt (value (micType)), value (micAFace) > 0.5f };
     else
         s = { roundToInt (value (micBSpeaker)), value (micBPos) / 10.0f, value (micBDist) / 10.0f, value (micBAngle), 0.0f, value (micBOn) > 0.5f, roundToInt (value (micBType)), value (micBFace) > 0.5f };
+    s.face = jlimit (0, 5, roundToInt (value (m == 0 ? vf::ParamID::micAFace : vf::ParamID::micBFace)));
+    s.back = s.face == 1;   // Back; the other faces are handled by the six-face model
     s.speaker = jlimit (0, geo.speakers - 1, s.speaker);
     s.theta = (float) state.state.getProperty (thetaKey[m], m == 0 ? -2.3 : 0.7);
     return s;
@@ -325,7 +327,7 @@ void CabRoomView::timerCallback()
         s.angle = st.angle;
         s.levelDb = value (m == 0 ? micALevel : micBLevel);
         s.invert = m == 1 && value (micBPhase) > 0.5f;
-        s.back = st.back;
+        s.face = st.face;
         return s;
     };
     preview.set (currentCab(), settingsFor (0), settingsFor (1), value (micAlign) > 0.5f);

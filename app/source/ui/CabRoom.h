@@ -34,7 +34,7 @@ public:
     int getSelectedMic() const noexcept { return selectedMic; }
 
 private:
-    struct MicState { int speaker; float position, distance, angle, theta; bool on; int type; bool back; };
+    struct MicState { int speaker; float position, distance, angle, theta; bool on; int type; bool back; int face; };
 
     void timerCallback() override;
     juce::String pid (const char* id) const;
