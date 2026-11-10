@@ -5,6 +5,7 @@
 #include "vf/dsp/AmpVoice.h"
 #include "vf/dsp/Cabinet.h"
 #include "vf/dsp/CabMics.h"
+#include "vf/dsp/CabFaces.h"
 #include "vf/dsp/RoomEnvironment.h"
 #include "vf/dsp/NoiseGate.h"
 #include "vf/dsp/Resampler.h"
@@ -904,6 +905,34 @@ int main()
             check (std::abs (resp (face, 1000.0)) < frontMid * 0.6, std::string (names[face]) + " mic is quieter than the front");
             check (std::abs (resp (face, 6000.0)) / std::abs (resp (face, 1000.0)) < frontHigh / frontMid, std::string (names[face]) + " mic is duller than the front");
         }
+    });
+
+    test ("Cab faces: the view picks the face under the mouse and its face coordinates", []
+    {
+        using namespace vf::dsp::cabfaces;
+        View v; v.yaw = 0.0f; v.pitch = 0.0f; v.scale = 200.0f; v.distance = 1e6f; // straight-on, near-orthographic
+        // Straight on, the front face is visible and the back is hidden.
+        check (faceVisible (Face::Front, v) && ! faceVisible (Face::Back, v), "front faces the viewer, back does not");
+        // The centre of the screen is the centre of the front.
+        Face f {}; float u = 9.0f, w = 9.0f;
+        check (pickFace ({ 0.0f, 0.0f }, v, f, u, w) && f == Face::Front && std::fabs (u) < 1e-3f && std::fabs (w) < 1e-3f, "centre hits the front centre");
+        // A point a quarter of the way right and up from the centre maps to u = +0.25, v = +0.25.
+        check (pickFace ({ 50.0f, -50.0f }, v, f, u, w) && f == Face::Front && std::fabs (u - 0.25f) < 1e-3f && std::fabs (w - 0.25f) < 1e-3f, "face coordinates are right and up");
+        // Round trip: a point on a face projects to a screen point that picks that face at the same (u, v).
+        View tilted; tilted.yaw = 0.6f; tilted.pitch = -0.35f; tilted.scale = 200.0f; tilted.distance = 4.0f;
+        bool roundTrip = true;
+        for (int i = 0; i < static_cast<int> (Face::count); ++i)
+        {
+            const auto fc = static_cast<Face> (i);
+            if (! faceVisible (fc, tilted)) continue;
+            float depth = 0.0f;
+            const Pt2 sp = project (pointOnFace (fc, 0.2f, -0.1f), tilted, depth);
+            Face hit {}; float hu = 0.0f, hv = 0.0f;
+            roundTrip = roundTrip && pickFace (sp, tilted, hit, hu, hv) && hit == fc && std::fabs (hu - 0.2f) < 2e-3f && std::fabs (hv + 0.1f) < 2e-3f;
+        }
+        check (roundTrip, "tilted view: pick returns the face and coordinates each point was placed at");
+        // Off the cube entirely: nothing is hit.
+        check (! pickFace ({ 1000.0f, 1000.0f }, v, f, u, w), "a point off the cube hits nothing");
     });
 
     test ("Four mics: disabled mics are silent; the summed mono keeps one mic's level", []
