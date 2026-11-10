@@ -117,6 +117,7 @@ private:
     bool isOn = true;
     juce::TextButton typeButton { "CHANGE" }, duplicateButton { "DUPLICATE" }, removeButton { "REMOVE" };
     juce::TextButton loadNamButton { "LOAD .NAM" };
+    std::unique_ptr<class NamProfileBar> namProfiles;   // 1-10 capture knob for NAM Loader blocks
     juce::Label namLabel;
     void chooseNamFile();
     std::unique_ptr<juce::FileChooser> namChooser;

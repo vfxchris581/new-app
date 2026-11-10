@@ -300,6 +300,9 @@ void ViridianForgeProcessor::removeBlock (int key)
         slotTypeIndex[static_cast<size_t> (key)].store (-1);
         slotFx[static_cast<size_t> (key)].reset(); // the live plan keeps it until it is retired
         apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (key)), nullptr);
+        for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
+            apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (key) + "_p" + juce::String (i)), nullptr);
+        apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (key) + "_active"), nullptr);
     }
     commitChain();
 }
@@ -502,6 +505,56 @@ juce::File ViridianForgeProcessor::importIntoLibrary (const juce::File& source, 
     if (dest == source) return source;
     if (dest.existsAsFile()) dest = dest.getNonexistentSibling();
     return source.copyFileTo (dest) ? dest : source;
+}
+
+void ViridianForgeProcessor::loadSlotNamFile (int slot, const juce::File& file)
+{
+    apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (slot) + "_active"), nullptr);
+    loadSlotNam (slot, file);
+}
+
+static juce::Identifier slotNamProfileId (int slot, int i)
+{
+    return juce::Identifier ("slotNam" + juce::String (slot) + "_p" + juce::String (i));
+}
+
+juce::String ViridianForgeProcessor::getSlotNamProfilePath (int slot, int i) const
+{
+    if (! juce::isPositiveAndBelow (i, AmpBlock::kNamProfiles)) return {};
+    return apvts.state.getProperty (slotNamProfileId (slot, i)).toString();
+}
+
+int ViridianForgeProcessor::getSlotNamActiveProfile (int slot) const
+{
+    return static_cast<int> (apvts.state.getProperty (juce::Identifier ("slotNam" + juce::String (slot) + "_active"), -1));
+}
+
+void ViridianForgeProcessor::setSlotNamProfile (int slot, int i, const juce::File& file)
+{
+    if (! juce::isPositiveAndBelow (i, AmpBlock::kNamProfiles)) return;
+    apvts.state.setProperty (slotNamProfileId (slot, i), file.getFullPathName(), nullptr);
+    selectSlotNamProfile (slot, i);
+}
+
+void ViridianForgeProcessor::selectSlotNamProfile (int slot, int i)
+{
+    const auto path = getSlotNamProfilePath (slot, i);
+    if (path.isEmpty()) return;
+    loadSlotNam (slot, juce::File (path));
+    apvts.state.setProperty (juce::Identifier ("slotNam" + juce::String (slot) + "_active"), i, nullptr);
+}
+
+void ViridianForgeProcessor::clearSlotNamProfile (int slot, int i)
+{
+    if (! juce::isPositiveAndBelow (i, AmpBlock::kNamProfiles)) return;
+    const bool wasActive = getSlotNamActiveProfile (slot) == i;
+    apvts.state.removeProperty (slotNamProfileId (slot, i), nullptr);
+    if (! wasActive) return;
+    apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (slot) + "_active"), nullptr);
+    apvts.state.removeProperty (juce::Identifier ("slotNam" + juce::String (slot)), nullptr);
+   #if VF_WITH_NAM
+    if (auto* nl = dynamic_cast<NamLoaderFx*> (slotFx[static_cast<size_t> (slot)].get())) nl->clear();
+   #endif
 }
 
 juce::String ViridianForgeProcessor::slotNamPath (int slot) const

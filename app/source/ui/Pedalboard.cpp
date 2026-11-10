@@ -1,4 +1,5 @@
 #include "Pedalboard.h"
+#include "Panels.h"
 #include "vf/Parameters.h"
 
 using namespace juce;
@@ -641,6 +642,20 @@ EffectEditor::EffectEditor (ViridianForgeProcessor& p) : processor (p)
     addChildComponent (namLabel);
     loadNamButton.setVisible (false);
     loadNamButton.onClick = [this] { chooseNamFile(); };
+    {
+        NamProfileBackend be;
+        be.pathAt = [this] (int i) { return processor.getSlotNamProfilePath (slot, i); };
+        be.activeIndex = [this] { return processor.getSlotNamActiveProfile (slot); };
+        be.select = [this] (int i) { processor.selectSlotNamProfile (slot, i); };
+        be.assign = [this] (int i, const juce::File& f) { processor.setSlotNamProfile (slot, i, f); };
+        be.clearActive = [this]
+        {
+            const int a = processor.getSlotNamActiveProfile (slot);
+            if (a >= 0) processor.clearSlotNamProfile (slot, a);
+        };
+        namProfiles = std::make_unique<NamProfileBar> (std::move (be));
+        addChildComponent (*namProfiles);
+    }
     typeButton.setTooltip ("Swap this block for another effect");
     typeButton.onClick = [this]
     {
@@ -691,7 +706,7 @@ void EffectEditor::chooseNamFile()
         {
             const auto file = fc.getResult();
             if (safeThis != nullptr && file.existsAsFile())
-                safeThis->processor.loadSlotNam (safeThis->slot, file);
+                safeThis->processor.loadSlotNamFile (safeThis->slot, file);
         });
 }
 
@@ -703,6 +718,7 @@ void EffectEditor::rebuild()
     const bool isNam = builtType >= 0 && vf::fx::effectTypes()[(size_t) builtType].id == "nam.loader";
     loadNamButton.setVisible (isNam);
     namLabel.setVisible (isNam);
+    if (namProfiles) { namProfiles->setVisible (isNam); namProfiles->refresh(); }
     if (isNam)
     {
         const auto path = processor.slotNamPath (slot);
@@ -753,6 +769,8 @@ void EffectEditor::resized()
 
     auto e = enclosure().toNearestInt();
     auto area = e.reduced (e.getWidth() / 16, 0).withTrimmedTop (e.getHeight() * 30 / 100).withTrimmedBottom (e.getHeight() * 30 / 100);
+    if (isNam && namProfiles != nullptr)
+        namProfiles->setBounds (area.removeFromLeft (120));   // captures knob sits left of the controls
     const int n = controls.size();
     if (n == 0) return;
     const int perRow = n <= 5 ? n : (n + 1) / 2;

@@ -112,7 +112,7 @@ AmpHeadPanel::AmpHeadPanel (APVTS& s, ViridianForgeProcessor& processor, int amp
         addAndMakeVisible (c);
     addChildComponent (geqOn);
     addChildComponent (namSlot);
-    namProfiles = std::make_unique<NamProfileBar> (processor, ampIndex);
+    namProfiles = std::make_unique<NamProfileBar> (ampNamBackend (processor, ampIndex), processor.getState().state);
     addChildComponent (*namProfiles);
     namProfiles->onStyleChanged = [this] { resized(); };
 
@@ -287,10 +287,20 @@ void AmpHeadPanel::paint (Graphics& g)
     g.drawText (index == 0 ? "AMP 1" : "AMP 2", tag, Justification::centred);
 }
 
-NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p), ampIndex (amp)
+NamProfileBackend ampNamBackend (ViridianForgeProcessor& p, int amp)
+{
+    return { [&p, amp] (int i) { return p.getNamProfilePath (amp, i); },
+             [&p, amp] { return p.getNamActiveProfile (amp); },
+             [&p, amp] (int i) { p.selectNamProfile (amp, i); },
+             [&p, amp] (int i, const File& f) { p.setNamProfile (amp, i, f); },
+             [&p, amp] { const int a = p.getNamActiveProfile (amp); if (a >= 0) p.clearNamProfile (amp, a); } };
+}
+
+NamProfileBar::NamProfileBar (NamProfileBackend backend, juce::ValueTree st)
+    : be (std::move (backend)), styleState (st), styleSwitch (st.isValid())
 {
     setTooltip ("NAM profiles 1-10");
-    knobStyle = processor.getState().state.getProperty ("namProfileStyle", "knob").toString() != "row";
+    if (styleSwitch) knobStyle = styleState.getProperty ("namProfileStyle", "knob").toString() != "row";
 
     for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
     {
@@ -299,16 +309,12 @@ NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p
         b->onClick = [this, i] { slotClicked (i); };
         addChildComponent (b);
     }
-    clearButton.setTooltip ("Clear the active NAM profile");
-    clearButton.onClick = [this]
-    {
-        const int active = processor.getNamActiveProfile (ampIndex);
-        if (active >= 0) processor.clearNamProfile (ampIndex, active);
-        refresh();
-    };
+    clearButton.setTooltip ("Clear the active NAM capture");
+    clearButton.onClick = [this] { if (be.activeIndex() >= 0) be.clearActive(); refresh(); };
     styleButton.onClick = [this] { setStyle (! knobStyle); };
     addAndMakeVisible (clearButton);
-    addAndMakeVisible (styleButton);
+    addChildComponent (styleButton);
+    styleButton.setVisible (styleSwitch);
     setStyle (knobStyle);
     refresh();
 }
@@ -316,9 +322,9 @@ NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p
 void NamProfileBar::setStyle (bool knob)
 {
     knobStyle = knob;
-    processor.getState().state.setProperty ("namProfileStyle", knob ? "knob" : "row", nullptr);
+    if (styleSwitch) styleState.setProperty ("namProfileStyle", knob ? "knob" : "row", nullptr);
     styleButton.setButtonText (knob ? "ROW" : "KNOB");
-    styleButton.setTooltip (knob ? "Show the 10 profiles as a row of buttons" : "Show the 10 profiles as a rotary knob");
+    styleButton.setTooltip (knob ? "Show the 10 captures as a row of buttons" : "Show the 10 captures as a rotary knob");
     for (auto* b : rowButtons) b->setVisible (! knob);
     if (onStyleChanged) onStyleChanged();
     repaint();
@@ -326,28 +332,17 @@ void NamProfileBar::setStyle (bool knob)
 
 void NamProfileBar::refresh()
 {
-    const int active = processor.getNamActiveProfile (ampIndex);
+    const int active = be.activeIndex();
     if (active >= 0) pos = active;
     for (int i = 0; i < rowButtons.size(); ++i)
     {
-        const auto path = processor.getNamProfilePath (ampIndex, i);
+        const auto path = be.pathAt (i);
         auto* b = rowButtons[i];
         b->setToggleState (i == active, dontSendNotification);
         b->setAlpha (path.isEmpty() ? 0.45f : 1.0f);
         b->setTooltip (path.isEmpty() ? "Empty: click to choose a .nam capture" : "Switch to " + File (path).getFileName());
     }
     repaint();
-}
-
-void NamProfileBar::slotClicked (int i)
-{
-    if (processor.getNamProfilePath (ampIndex, i).isNotEmpty())
-    {
-        processor.selectNamProfile (ampIndex, i);
-        refresh();
-        return;
-    }
-    assignEmpty (i);
 }
 
 juce::Point<float> NamProfileBar::knobCentre() const
@@ -370,10 +365,9 @@ void NamProfileBar::paint (Graphics& g)
     auto angleFor = [&] (int i) { return jmap ((float) i, 0.0f, 9.0f, start, end); };
     auto pointAt = [&] (float a, float rad) { return juce::Point<float> (c.x + rad * std::sin (a), c.y - rad * std::cos (a)); };
 
-    // Scale: a tick and number for each position, lit when the position holds a capture
     for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
     {
-        const bool filled = processor.getNamProfilePath (ampIndex, i).isNotEmpty();
+        const bool filled = be.pathAt (i).isNotEmpty();
         const float a = angleFor (i);
         g.setColour (filled ? Colour (0xfff0a94a) : Colour (0x66ffffff));
         g.drawLine ({ pointAt (a, R + 2), pointAt (a, R + 7) }, 1.5f);
@@ -381,7 +375,6 @@ void NamProfileBar::paint (Graphics& g)
         g.drawText (String (i + 1), Rectangle<float> (0, 0, 20, 12).withCentre (pointAt (a, R + 16)), Justification::centred);
     }
 
-    // Knob body with a soft highlight, like a moulded amp knob
     const float body = R * 0.72f;
     ColourGradient grad (Colour (0xff5a5f69), c.x, c.y - body, Colour (0xff1c1e23), c.x, c.y + body, false);
     g.setGradientFill (grad);
@@ -389,8 +382,7 @@ void NamProfileBar::paint (Graphics& g)
     g.setColour (Colour (0x33000000));
     g.drawEllipse (Rectangle<float> (body * 2, body * 2).withCentre (c), 1.0f);
 
-    // Pointer: amber when the position holds a capture, grey when empty
-    const bool posFilled = processor.getNamProfilePath (ampIndex, pos).isNotEmpty();
+    const bool posFilled = be.pathAt (pos).isNotEmpty();
     g.setColour (posFilled ? Colour (0xfff0a94a) : Colour (0x80ffffff));
     g.drawLine ({ pointAt (angleFor (pos), body * 0.25f), pointAt (angleFor (pos), body * 0.85f) }, 3.0f);
 }
@@ -400,8 +392,15 @@ void NamProfileBar::resized()
     if (knobStyle)
     {
         auto strip = getLocalBounds().removeFromBottom (18);
-        clearButton.setBounds (strip.removeFromLeft (getWidth() / 2).withSizeKeepingCentre (40, 16));
-        styleButton.setBounds (strip.withSizeKeepingCentre (48, 16));
+        if (styleSwitch)
+        {
+            clearButton.setBounds (strip.removeFromLeft (getWidth() / 2).withSizeKeepingCentre (40, 16));
+            styleButton.setBounds (strip.withSizeKeepingCentre (48, 16));
+        }
+        else
+        {
+            clearButton.setBounds (strip.withSizeKeepingCentre (40, 16));
+        }
         return;
     }
     auto area = getLocalBounds();
@@ -417,8 +416,7 @@ void NamProfileBar::turnTo (int position, bool commit)
     if (! knobStyle) return;
     pos = jlimit (0, AmpBlock::kNamProfiles - 1, position);
     repaint();
-    if (commit && processor.getNamProfilePath (ampIndex, pos).isNotEmpty())
-        processor.selectNamProfile (ampIndex, pos);
+    if (commit && be.pathAt (pos).isNotEmpty()) be.select (pos);
 }
 
 void NamProfileBar::mouseDown (const MouseEvent& e)
@@ -441,10 +439,8 @@ void NamProfileBar::mouseDrag (const MouseEvent& e)
 void NamProfileBar::mouseUp (const MouseEvent&)
 {
     if (! knobStyle || ! dragged) return;
-    if (processor.getNamProfilePath (ampIndex, pos).isNotEmpty())
-        processor.selectNamProfile (ampIndex, pos);
-    else
-        assignEmpty (pos);
+    if (be.pathAt (pos).isNotEmpty()) be.select (pos);
+    else assignEmpty (pos);
 }
 
 void NamProfileBar::mouseWheelMove (const MouseEvent&, const MouseWheelDetails& w)
@@ -455,9 +451,20 @@ void NamProfileBar::mouseWheelMove (const MouseEvent&, const MouseWheelDetails& 
     turnTo (pos + step, true);
 }
 
+void NamProfileBar::slotClicked (int i)
+{
+    if (be.pathAt (i).isNotEmpty())
+    {
+        be.select (i);
+        refresh();
+        return;
+    }
+    assignEmpty (i);
+}
+
 void NamProfileBar::assignEmpty (int i)
 {
-    chooser = std::make_unique<FileChooser> ("Choose NAM profile " + String (i + 1), File(), "*.nam");
+    chooser = std::make_unique<FileChooser> ("Choose NAM capture " + String (i + 1), File(), "*.nam");
     SafePointer<NamProfileBar> safe (this);
     chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles,
         [safe, i] (const FileChooser& fc)
@@ -465,7 +472,7 @@ void NamProfileBar::assignEmpty (int i)
             const auto file = fc.getResult();
             if (safe != nullptr && file.existsAsFile())
             {
-                safe->processor.setNamProfile (safe->ampIndex, i, file);
+                safe->be.assign (i, file);
                 safe->refresh();
             }
         });

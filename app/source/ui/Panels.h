@@ -3,16 +3,30 @@
 #include <JuceHeader.h>
 #include "Widgets.h"
 #include "../PluginProcessor.h"
+#include <functional>
 
-/** Amp-style rotary selector for up to 10 NAM profiles: drag or scroll to turn to a position.
-    A filled position switches to that capture; turning to an empty one and letting go asks for a .nam file. */
+/** What a NAM profile control reads and writes: the amp's NAM slot or a NAM Loader block. */
+struct NamProfileBackend
+{
+    std::function<juce::String (int)> pathAt;                   // capture at a position, empty if none
+    std::function<int()> activeIndex;                           // -1 when no profile is active
+    std::function<void (int)> select;                           // switch to a filled position
+    std::function<void (int, const juce::File&)> assign;        // fill a position
+    std::function<void()> clearActive;                          // empty the active position
+};
+
+/** The amp's NAM profiles as a backend. */
+NamProfileBackend ampNamBackend (ViridianForgeProcessor& processor, int ampIndex);
+
+/** Amp-style rotary selector for up to 10 NAM captures: drag or scroll to turn, a filled position switches,
+    turning to an empty one and letting go asks for a .nam file. Optionally flips to a button row (KNOB/ROW). */
 class NamProfileBar : public juce::Component
 {
 public:
-    NamProfileBar (ViridianForgeProcessor& processor, int ampIndex);
+    NamProfileBar (NamProfileBackend backend, juce::ValueTree styleState = {});
     void refresh();
     bool isKnobStyle() const noexcept { return knobStyle; }
-    std::function<void()> onStyleChanged;   // the panel relays out when the style flips
+    std::function<void()> onStyleChanged;   // the owner relays out when the style flips
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -23,17 +37,17 @@ public:
 private:
     void turnTo (int position, bool commit);
     void slotClicked (int i);
-    void setStyle (bool knob);
     void assignEmpty (int i);
+    void setStyle (bool knob);
     juce::Point<float> knobCentre() const;
     float knobRadius() const;
 
-    ViridianForgeProcessor& processor;
-    int ampIndex;
+    NamProfileBackend be;
+    juce::ValueTree styleState;
+    bool styleSwitch = false, knobStyle = true;
     int pos = 0, dragStartPos = 0;
     float dragStartY = 0.0f;
     bool dragged = false;
-    bool knobStyle = true;
     juce::OwnedArray<juce::TextButton> rowButtons;
     juce::TextButton clearButton { "CLR" }, styleButton;
     std::unique_ptr<juce::FileChooser> chooser;

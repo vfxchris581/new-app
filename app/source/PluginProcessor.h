@@ -94,7 +94,13 @@ public:
     void setSplit (bool on);
     int freeSlotCount() const noexcept;
     /** NAM loader block: load a .nam capture into a slot (message thread; the work runs on the loader pool). */
-    void loadSlotNam (int slot, const juce::File& file);   // NAM loader block: load a capture (any thread)
+    void loadSlotNam (int slot, const juce::File& file);   // NAM loader block: load a capture (restore, any thread)
+    void loadSlotNamFile (int slot, const juce::File& file); // user picked a capture: drops the active profile
+    juce::String getSlotNamProfilePath (int slot, int i) const;
+    int getSlotNamActiveProfile (int slot) const;
+    void setSlotNamProfile (int slot, int i, const juce::File& file);
+    void selectSlotNamProfile (int slot, int i);
+    void clearSlotNamProfile (int slot, int i);
     juce::String slotNamPath (int slot) const;              // saved capture path for a NAM loader slot
 
     /** Host parameter IDs for blocks. */
