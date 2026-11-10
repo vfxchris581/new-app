@@ -288,13 +288,7 @@ void AmpHeadPanel::paint (Graphics& g)
 
 NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p), ampIndex (amp)
 {
-    for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
-    {
-        auto* b = buttons.add (new TextButton (String (i + 1)));
-        b->setClickingTogglesState (false);
-        b->onClick = [this, i] { slotClicked (i); };
-        addAndMakeVisible (b);
-    }
+    setTooltip ("NAM profiles: drag or scroll to turn, 1-10");
     clearButton.setTooltip ("Clear the active NAM profile");
     clearButton.onClick = [this]
     {
@@ -309,34 +303,100 @@ NamProfileBar::NamProfileBar (ViridianForgeProcessor& p, int amp) : processor (p
 void NamProfileBar::refresh()
 {
     const int active = processor.getNamActiveProfile (ampIndex);
-    for (int i = 0; i < buttons.size(); ++i)
+    if (active >= 0) pos = active;
+    repaint();
+}
+
+juce::Point<float> NamProfileBar::knobCentre() const
+{
+    return getLocalBounds().withTrimmedBottom (18).toFloat().getCentre();
+}
+
+float NamProfileBar::knobRadius() const
+{
+    auto k = getLocalBounds().withTrimmedBottom (18).toFloat();
+    return jmin (k.getWidth(), k.getHeight()) * 0.5f - 14.0f;
+}
+
+void NamProfileBar::paint (Graphics& g)
+{
+    const auto c = knobCentre();
+    const float R = knobRadius();
+    const float start = -2.3562f, end = 2.3562f;   // -135 to +135 degrees, as on an amp
+    auto angleFor = [&] (int i) { return jmap ((float) i, 0.0f, 9.0f, start, end); };
+    auto pointAt = [&] (float a, float rad) { return juce::Point<float> (c.x + rad * std::sin (a), c.y - rad * std::cos (a)); };
+
+    // Scale: a tick and number for each position, lit when the position holds a capture
+    for (int i = 0; i < AmpBlock::kNamProfiles; ++i)
     {
-        const auto path = processor.getNamProfilePath (ampIndex, i);
-        auto* b = buttons[i];
-        b->setToggleState (i == active, dontSendNotification);
-        b->setAlpha (path.isEmpty() ? 0.45f : 1.0f);
-        b->setTooltip (path.isEmpty() ? "Empty: click to choose a .nam capture"
-                                      : "Switch to " + File (path).getFileName());
+        const bool filled = processor.getNamProfilePath (ampIndex, i).isNotEmpty();
+        const float a = angleFor (i);
+        g.setColour (filled ? Colour (0xfff0a94a) : Colour (0x66ffffff));
+        g.drawLine ({ pointAt (a, R + 2), pointAt (a, R + 7) }, 1.5f);
+        g.setFont (juce::FontOptions (9.0f));
+        g.drawText (String (i + 1), Rectangle<float> (0, 0, 20, 12).withCentre (pointAt (a, R + 16)), Justification::centred);
     }
+
+    // Knob body with a soft highlight, like a moulded amp knob
+    const float body = R * 0.72f;
+    ColourGradient grad (Colour (0xff5a5f69), c.x, c.y - body, Colour (0xff1c1e23), c.x, c.y + body, false);
+    g.setGradientFill (grad);
+    g.fillEllipse (Rectangle<float> (body * 2, body * 2).withCentre (c));
+    g.setColour (Colour (0x33000000));
+    g.drawEllipse (Rectangle<float> (body * 2, body * 2).withCentre (c), 1.0f);
+
+    // Pointer: amber when the position holds a capture, grey when empty
+    const bool posFilled = processor.getNamProfilePath (ampIndex, pos).isNotEmpty();
+    g.setColour (posFilled ? Colour (0xfff0a94a) : Colour (0x80ffffff));
+    g.drawLine ({ pointAt (angleFor (pos), body * 0.25f), pointAt (angleFor (pos), body * 0.85f) }, 3.0f);
 }
 
 void NamProfileBar::resized()
 {
-    auto r = getLocalBounds();
-    clearButton.setBounds (r.removeFromRight (40).reduced (1, 0));
-    const int w = r.getWidth() / buttons.size();
-    for (int i = 0; i < buttons.size(); ++i)
-        buttons[i]->setBounds (r.removeFromLeft (w).reduced (1, 0));
+    clearButton.setBounds (getLocalBounds().removeFromBottom (18).withSizeKeepingCentre (40, 16));
 }
 
-void NamProfileBar::slotClicked (int i)
+void NamProfileBar::turnTo (int position, bool commit)
 {
-    if (processor.getNamProfilePath (ampIndex, i).isNotEmpty())
-    {
-        processor.selectNamProfile (ampIndex, i);
-        refresh();
-        return;
-    }
+    pos = jlimit (0, AmpBlock::kNamProfiles - 1, position);
+    repaint();
+    if (commit && processor.getNamProfilePath (ampIndex, pos).isNotEmpty())
+        processor.selectNamProfile (ampIndex, pos);
+}
+
+void NamProfileBar::mouseDown (const MouseEvent& e)
+{
+    dragStartY = e.position.y;
+    dragStartPos = pos;
+    dragged = false;
+}
+
+void NamProfileBar::mouseDrag (const MouseEvent& e)
+{
+    const int steps = roundToInt ((dragStartY - e.position.y) / 12.0f);
+    if (steps == 0 && ! dragged) return;
+    dragged = true;
+    turnTo (dragStartPos + steps, false);
+}
+
+void NamProfileBar::mouseUp (const MouseEvent&)
+{
+    if (! dragged) return;
+    if (processor.getNamProfilePath (ampIndex, pos).isNotEmpty())
+        processor.selectNamProfile (ampIndex, pos);
+    else
+        assignEmpty (pos);
+}
+
+void NamProfileBar::mouseWheelMove (const MouseEvent&, const MouseWheelDetails& w)
+{
+    const int step = w.deltaY > 0 ? 1 : (w.deltaY < 0 ? -1 : 0);
+    if (step == 0) return;
+    turnTo (pos + step, true);
+}
+
+void NamProfileBar::assignEmpty (int i)
+{
     chooser = std::make_unique<FileChooser> ("Choose NAM profile " + String (i + 1), File(), "*.nam");
     SafePointer<NamProfileBar> safe (this);
     chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles,
@@ -360,8 +420,8 @@ void AmpHeadPanel::resized()
     {
         const int w = grille.getWidth() * 52 / 100;
         auto slotArea = grille.removeFromRight (w);
-        if (namProfiles) namProfiles->setBounds (slotArea.removeFromBottom (24).reduced (0, 2));
-        namSlot.setBounds (slotArea.withSizeKeepingCentre (w, jmin (64, slotArea.getHeight())));
+        if (namProfiles) namProfiles->setBounds (slotArea.removeFromLeft (110));
+        namSlot.setBounds (slotArea.withSizeKeepingCentre (slotArea.getWidth(), jmin (64, slotArea.getHeight())));
     }
     else if (hasGeq)
     {

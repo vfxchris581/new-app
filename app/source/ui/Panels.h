@@ -4,20 +4,31 @@
 #include "Widgets.h"
 #include "../PluginProcessor.h"
 
-/** Row of up to 10 NAM profile buttons for one amp: click a filled one to switch, an empty one to assign a capture. */
+/** Amp-style rotary selector for up to 10 NAM profiles: drag or scroll to turn to a position.
+    A filled position switches to that capture; turning to an empty one and letting go asks for a .nam file. */
 class NamProfileBar : public juce::Component
 {
 public:
     NamProfileBar (ViridianForgeProcessor& processor, int ampIndex);
     void refresh();
+    void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
-    void slotClicked (int i);
+    void turnTo (int position, bool commit);
+    void assignEmpty (int i);
+    juce::Point<float> knobCentre() const;
+    float knobRadius() const;
 
     ViridianForgeProcessor& processor;
     int ampIndex;
-    juce::OwnedArray<juce::TextButton> buttons;
+    int pos = 0, dragStartPos = 0;
+    float dragStartY = 0.0f;
+    bool dragged = false;
     juce::TextButton clearButton { "CLR" };
     std::unique_ptr<juce::FileChooser> chooser;
 };
