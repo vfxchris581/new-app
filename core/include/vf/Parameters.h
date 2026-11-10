@@ -90,6 +90,15 @@ namespace ParamID
     inline constexpr const char* micDType = "micDType";
     inline constexpr const char* micDPhase = "micDPhase";
     inline constexpr const char* micDFace = "micDFace";
+    // Where a mic stands on a side, top or bottom face (u, v in [-0.5, 0.5])
+    inline constexpr const char* micAU = "micAU";
+    inline constexpr const char* micAV = "micAV";
+    inline constexpr const char* micBU = "micBU";
+    inline constexpr const char* micBV = "micBV";
+    inline constexpr const char* micCU = "micCU";
+    inline constexpr const char* micCV = "micCV";
+    inline constexpr const char* micDU = "micDU";
+    inline constexpr const char* micDV = "micDV";
     // Phase 4b: two-mic cab capture
     inline constexpr const char* micASpeaker   = "micASpeaker";
     inline constexpr const char* micAAngle     = "micAAngle";
@@ -130,7 +139,7 @@ inline constexpr float defaultCabModel = static_cast<float> (dsp::CabModel::Gree
 /** Speaker slot choices: 0 = the cab's own voice, 1..13 = Speaker_1..Speaker_13. */
 inline constexpr float lastSlotSpeaker = static_cast<float> (dsp::CabModel::count) - static_cast<float> (dsp::CabModel::Speaker_1);
 
-inline constexpr std::array<ParamSpec, 74> parameterSpecs {{
+inline constexpr std::array<ParamSpec, 82> parameterSpecs {{
     { ParamID::inputGain,     "Input",          ParamKind::Float,  -24.0f, 24.0f,  0.0f,  0.1f, "dB", 1 },
     { ParamID::gateEnabled,   "Gate On",        ParamKind::Bool,     0.0f,  1.0f,  1.0f,  1.0f, "",   1 },
     { ParamID::gateThreshold, "Gate Threshold", ParamKind::Float,  -96.0f, -20.0f, -70.0f, 0.1f, "dB", 1 },
@@ -200,6 +209,14 @@ inline constexpr std::array<ParamSpec, 74> parameterSpecs {{
     { ParamID::micDLevel,     "Mic D Level",    ParamKind::Float,  -24.0f,  6.0f,  0.0f,  0.1f, "dB", 5 },
     { ParamID::micDPhase,     "Mic D Phase",    ParamKind::Bool,     0.0f,  1.0f,  0.0f,  1.0f, "",   5 },
     { ParamID::micDFace,      "Mic D Side",     ParamKind::Choice,   0.0f,  lastMicFace,  0.0f,  1.0f, "",   5 },
+    { ParamID::micAU, "Mic A Side U", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micAV, "Mic A Side V", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micBU, "Mic B Side U", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micBV, "Mic B Side V", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micCU, "Mic C Side U", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micCV, "Mic C Side V", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micDU, "Mic D Side U", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
+    { ParamID::micDV, "Mic D Side V", ParamKind::Float, -0.5f, 0.5f, 0.0f, 0.01f, "", 5 },
     { ParamID::roomEnv,       "Room",           ParamKind::Choice,   0.0f, lastEnvironment, defaultEnvironment, 1.0f, "", 5 },
     { ParamID::slotSpeaker1,  "Speaker 1 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
     { ParamID::slotSpeaker2,  "Speaker 2 Voice", ParamKind::Choice,  0.0f, lastSlotSpeaker, 0.0f, 1.0f, "", 4 },
@@ -219,7 +236,7 @@ inline constexpr std::array<const char*, 20> ampParamIds {
     ParamID::geq2200, ParamID::geq6600 };
 
 /** Parameters owned by a cab block; Cab 2 uses them prefixed with "cab2_". */
-inline constexpr std::array<const char*, 50> cabParamIds {
+inline constexpr std::array<const char*, 58> cabParamIds {
     ParamID::cabEnabled, ParamID::cabModel, ParamID::micPosition, ParamID::micDistance, ParamID::cabSource,
     ParamID::micType, ParamID::irBlend, ParamID::irPhaseB, ParamID::cabLowCut, ParamID::cabHighCut,
     ParamID::room, ParamID::cabStereo, ParamID::slotSpeaker1, ParamID::slotSpeaker2, ParamID::slotSpeaker3,
@@ -227,7 +244,8 @@ inline constexpr std::array<const char*, 50> cabParamIds {
     ParamID::micASpeaker, ParamID::micAAngle, ParamID::micALevel, ParamID::micBOn, ParamID::micBSpeaker,
     ParamID::micBPos, ParamID::micBDist, ParamID::micBAngle, ParamID::micBType, ParamID::micBLevel,
     ParamID::micBPhase, ParamID::micAlign, ParamID::roomDist, ParamID::micAFace, ParamID::micBFace, ParamID::roomEnv,
-    ParamID::micCOn, ParamID::micCSpeaker, ParamID::micCPos, ParamID::micCDist, ParamID::micCAngle, ParamID::micCLevel, ParamID::micCType, ParamID::micCPhase, ParamID::micCFace, ParamID::micDOn, ParamID::micDSpeaker, ParamID::micDPos, ParamID::micDDist, ParamID::micDAngle, ParamID::micDLevel, ParamID::micDType, ParamID::micDPhase, ParamID::micDFace };
+    ParamID::micCOn, ParamID::micCSpeaker, ParamID::micCPos, ParamID::micCDist, ParamID::micCAngle, ParamID::micCLevel, ParamID::micCType, ParamID::micCPhase, ParamID::micCFace, ParamID::micDOn, ParamID::micDSpeaker, ParamID::micDPos, ParamID::micDDist, ParamID::micDAngle, ParamID::micDLevel, ParamID::micDType, ParamID::micDPhase, ParamID::micDFace,
+    ParamID::micAU, ParamID::micAV, ParamID::micBU, ParamID::micBV, ParamID::micCU, ParamID::micCV, ParamID::micDU, ParamID::micDV };
 
 inline constexpr const char* amp2Prefix = "amp2_";
 inline constexpr const char* cab2Prefix = "cab2_";

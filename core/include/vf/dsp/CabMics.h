@@ -15,6 +15,7 @@
 #pragma once
 
 #include "Cabinet.h"
+#include "CabFaces.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -39,6 +40,7 @@ struct MicSettings
     float levelDb = 0.0f;
     bool invert = false;
     int face = 0;             // MicFace: 0 Front, 1 Back, 2 Top, 3 Bottom, 4 Left, 5 Right
+    float u = 0.0f, v = 0.0f; // where it stands on a side, top or bottom face (face coordinates)
 };
 
 class CabMics
@@ -48,7 +50,7 @@ public:
     static constexpr int kMaxBleed = 3;
     static constexpr int kMics = 4;
     static constexpr float kRearPathCm = 14.0f;
-    static constexpr float kSidePathCm = 18.0f;   // from the speaker to a side, top or bottom wall
+    static constexpr float kCabDepthCm = 30.0f;   // front to back, for placing side mics in space
     static constexpr float kSideLevel = 0.35f;    // about -9 dB: the shell is a poor place for a mic
 
     void prepare (double sampleRate)
@@ -171,6 +173,26 @@ private:
         int numBleed = 0;
     };
 
+    /** Distance (cm) from a side, top or bottom mic to the nearest speaker cone, in the cabinet's own space. */
+    static float sidePathCm (const MicSettings& s, CabModel cab) noexcept
+    {
+        const auto geo = getCabGeometry (cab);
+        const float W = static_cast<float> (geo.columns) * geo.spacingCm;
+        const float H = static_cast<float> (geo.speakers / geo.columns) * geo.spacingCm;
+        const auto p = cabfaces::pointOnFace (static_cast<cabfaces::Face> (s.face), s.u, s.v);
+        const float mx = p.x * W, my = p.y * H, mz = p.z * kCabDepthCm;
+        float best = 1e9f;
+        for (int k = 0; k < geo.speakers; ++k)
+        {
+            float sx = 0.0f, sy = 0.0f;
+            geo.centre (k, sx, sy);
+            const float dx = mx - sx, dy = my + sy, dz = mz - 0.5f * kCabDepthCm;   // speakers sit on the front face
+            best = std::min (best, std::sqrt (dx * dx + dy * dy + dz * dz));
+        }
+        return std::max (1.0f, best);
+    }
+
+
     void configure (bool snap) noexcept
     {
         const auto geo = getCabGeometry (cab);
@@ -192,7 +214,7 @@ private:
 
             // Own speaker: straight-line distance (plus a little for the cone depth).
             const float dcm = std::max (0.0f, std::min (1.0f, s.distance)) * kMaxMicDistanceCm;
-            ownPath[k] = dcm + (isBack ? kRearPathCm : (isSide ? kSidePathCm : 1.0f));   // behind or to a side: the sound also travels the cabinet
+            ownPath[k] = isSide ? sidePathCm (s, cab) : dcm + (isBack ? kRearPathCm : 1.0f);   // a side mic: its distance to the nearest speaker
 
             // Other speakers: further away and arriving later; negligible right on the grille.
             m.numBleed = 0;

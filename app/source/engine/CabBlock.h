@@ -42,7 +42,8 @@ private:
             *micASpeaker, *micAAngle, *micALevel, *micBOn, *micBSpeaker, *micBPos, *micBDist, *micBAngle,
             *micBType, *micBLevel, *micBPhase, *micAlign, *roomDist, *micAFace, *micBFace, *roomEnv,
             *slotSpeaker[4];
-        struct MicRaw { std::atomic<float>* on, *speaker, *pos, *dist, *angle, *level, *type, *phase, *face; };
+        struct MicRaw { std::atomic<float>* on, *speaker, *pos, *dist, *angle, *level, *type, *phase, *face, *u, *v; };
+        std::atomic<float>* micAU = nullptr, *micAV = nullptr, *micBU = nullptr, *micBV = nullptr;
         MicRaw micC {}, micD {};   // mics C and D
     } raw {};
 

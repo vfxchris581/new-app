@@ -935,6 +935,21 @@ int main()
         check (! pickFace ({ 1000.0f, 1000.0f }, v, f, u, w), "a point off the cube hits nothing");
     });
 
+    test ("Side mic: where it stands on the side changes its distance to the speakers", []
+    {
+        MicSettings off; off.enabled = false;
+        auto delayAt = [&] (float u, float v)
+        {
+            MicSettings m; m.face = static_cast<int> (MicFace::Right); m.u = u; m.v = v;
+            CabMics mics; mics.prepare (48000.0); mics.set (CabModel::V30_4x12, m, off, false);
+            return mics.delaySamples (0);
+        };
+        const double near = delayAt (0.5f, 0.0f);    // at the front edge of the right side
+        const double far = delayAt (-0.5f, 0.0f);    // at the back edge
+        check (near != far, "front and back of the right side give different delays");
+        check (near < far, "the front edge is nearer the speakers than the back edge");
+    });
+
     test ("Four mics: disabled mics are silent; the summed mono keeps one mic's level", []
     {
         MicSettings on; on.distance = 0.1f;

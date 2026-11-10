@@ -35,9 +35,13 @@ CabBlock::CabBlock (juce::AudioProcessorValueTreeState& state, const juce::Strin
     raw.slotSpeaker[0] = get (ParamID::slotSpeaker1); raw.slotSpeaker[1] = get (ParamID::slotSpeaker2);
     raw.slotSpeaker[2] = get (ParamID::slotSpeaker3); raw.slotSpeaker[3] = get (ParamID::slotSpeaker4);
     raw.micC = { get (ParamID::micCOn), get (ParamID::micCSpeaker), get (ParamID::micCPos), get (ParamID::micCDist), get (ParamID::micCAngle),
-                 get (ParamID::micCLevel), get (ParamID::micCType), get (ParamID::micCPhase), get (ParamID::micCFace) };
+                 get (ParamID::micCLevel), get (ParamID::micCType), get (ParamID::micCPhase), get (ParamID::micCFace),
+                 get (ParamID::micCU), get (ParamID::micCV) };
     raw.micD = { get (ParamID::micDOn), get (ParamID::micDSpeaker), get (ParamID::micDPos), get (ParamID::micDDist), get (ParamID::micDAngle),
-                 get (ParamID::micDLevel), get (ParamID::micDType), get (ParamID::micDPhase), get (ParamID::micDFace) };
+                 get (ParamID::micDLevel), get (ParamID::micDType), get (ParamID::micDPhase), get (ParamID::micDFace),
+                 get (ParamID::micDU), get (ParamID::micDV) };
+    raw.micAU = get (ParamID::micAU); raw.micAV = get (ParamID::micAV);
+    raw.micBU = get (ParamID::micBU); raw.micBV = get (ParamID::micBV);
 }
 
 void CabBlock::updateMics() noexcept
@@ -53,6 +57,7 @@ void CabBlock::updateMics() noexcept
     a.angle = raw.micAAngle->load();
     a.levelDb = raw.micALevel->load();
     a.face = juce::jlimit (0, 5, juce::roundToInt (raw.micAFace->load()));
+    a.u = raw.micAU->load(); a.v = raw.micAV->load();
     b.enabled = raw.micBOn->load() > 0.5f;
     b.type = micType (raw.micBType);
     b.speaker = juce::roundToInt (raw.micBSpeaker->load());
@@ -62,6 +67,7 @@ void CabBlock::updateMics() noexcept
     b.levelDb = raw.micBLevel->load();
     b.invert = raw.micBPhase->load() > 0.5f;
     b.face = juce::jlimit (0, 5, juce::roundToInt (raw.micBFace->load()));
+    b.u = raw.micBU->load(); b.v = raw.micBV->load();
     const auto model = static_cast<CabModel> (juce::jlimit (0, static_cast<int> (CabModel::count) - 1, juce::roundToInt (raw.cabModel->load())));
     // Speaker slot choice: 0 = the cab's own voice (-1), k = Speaker_k (a CabModel index).
     std::array<int, 4> slots { -1, -1, -1, -1 };
@@ -84,6 +90,8 @@ void CabBlock::updateMics() noexcept
         m.levelDb = r.level->load();
         m.invert = r.phase->load() > 0.5f;
         m.face = juce::jlimit (0, 5, juce::roundToInt (r.face->load()));
+        m.u = r.u->load();
+        m.v = r.v->load();
         return m;
     };
     mics.set (model, std::array<MicSettings, CabMics::kMics> { a, b, readMic (raw.micC), readMic (raw.micD) }, raw.micAlign->load() > 0.5f);

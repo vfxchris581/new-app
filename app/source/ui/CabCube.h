@@ -20,7 +20,7 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
 
 private:
-    struct MicIds { const char* face; const char* speaker; const char* pos; const char* dist; const char* on; };
+    struct MicIds { const char* face; const char* speaker; const char* pos; const char* dist; const char* on; const char* u; const char* v; };
     static const MicIds& idsFor (int mic);
 
     void timerCallback() override;

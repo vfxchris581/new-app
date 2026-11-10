@@ -640,7 +640,7 @@ void CabPanel::updateMode()
 Rectangle<float> CabPanel::cabArea() const
 {
     if (mode != 0 || ! micType.isVisible()) return {};
-    auto top = speakerSlot[0]->getBottom() + 6, bottom = micPosition.getY() - 4;
+    auto top = speakerSlot[2]->getBottom() + 6, bottom = micPosition.getY() - 4;
     auto r = Rectangle<float> ((float) getX() * 0.0f + 14.0f, (float) top, (float) getWidth() - 28.0f, (float) jmax (0, bottom - top));
     return r.withSizeKeepingCentre (jmin (r.getWidth(), r.getHeight() * 1.1f), r.getHeight());
 }
@@ -715,10 +715,14 @@ void CabPanel::resized()
     {
         cabModel.setBounds (r.removeFromTop (40).reduced (2, 0));
         micType.setBounds (r.removeFromTop (40).reduced (2, 0));
-        auto speakers = r.removeFromTop (40);
-        const int sw = speakers.getWidth() / 4;
-        for (auto& sp : speakerSlot)
-            sp->setBounds (speakers.removeFromLeft (sw).reduced (2, 0));
+        // Speaker voices in a 2x2 grid so the long names fit.
+        auto speakers = r.removeFromTop (80);
+        auto speakersTop = speakers.removeFromTop (40);
+        const int hw = speakersTop.getWidth() / 2;
+        speakerSlot[0]->setBounds (speakersTop.removeFromLeft (hw).reduced (2, 0));
+        speakerSlot[1]->setBounds (speakersTop.reduced (2, 0));
+        speakerSlot[2]->setBounds (speakers.removeFromLeft (hw).reduced (2, 0));
+        speakerSlot[3]->setBounds (speakers.reduced (2, 0));
         auto knobs = r.removeFromBottom (knobH);
         micPosition.setBounds (knobs.removeFromLeft (knobs.getWidth() / 2).reduced (4, 0));
         micDistance.setBounds (knobs.reduced (4, 0));

@@ -15,10 +15,10 @@ const CabCubeView::MicIds& CabCubeView::idsFor (int mic)
 {
     using namespace vf::ParamID;
     static const MicIds ids[4] {
-        { micAFace, micASpeaker, micPosition, micDistance, nullptr },
-        { micBFace, micBSpeaker, micBPos, micBDist, micBOn },
-        { micCFace, micCSpeaker, micCPos, micCDist, micCOn },
-        { micDFace, micDSpeaker, micDPos, micDDist, micDOn } };
+        { micAFace, micASpeaker, micPosition, micDistance, nullptr, micAU, micAV },
+        { micBFace, micBSpeaker, micBPos, micBDist, micBOn, micBU, micBV },
+        { micCFace, micCSpeaker, micCPos, micCDist, micCOn, micCU, micCV },
+        { micDFace, micDSpeaker, micDPos, micDDist, micDOn, micDU, micDV } };
     return ids[mic];
 }
 
@@ -81,8 +81,8 @@ juce::Point<float> CabCubeView::micScreenPos (int mic, float& depth) const
         const float x = (sx + r) / W, y = -sy / H;     // cube coordinates (front face, v up)
         return project (pointOnFace ((Face) face, x, y), depth);
     }
-    const float offset = (mic - 1.5f) * 0.18f;
-    return project (pointOnFace ((Face) face, offset, 0.0f), depth);
+    // Sides, top and bottom: where the mic was dropped on the face.
+    return project (pointOnFace ((Face) face, value (ids.u), value (ids.v)), depth);
 }
 
 void CabCubeView::paint (Graphics& g)
@@ -219,6 +219,11 @@ void CabCubeView::dropMic (int mic, Point<float> at)
 
     const auto& ids = idsFor (mic);
     setValue (ids.face, (float) (int) face);
+    if (face != Face::Front && face != Face::Back)
+    {
+        setValue (ids.u, u);
+        setValue (ids.v, v);
+    }
 
     if (face == Face::Front || face == Face::Back)
     {
