@@ -43,6 +43,18 @@ CabRoomView::CabRoomView (ViridianForgeProcessor& p, int cabIndex)
     backButton.setTooltip ("Show the back of the cab: mic the rear of an open-back cab, or through the back panel of a closed one");
     frontButton.onClick = [this] { setView (false); };
     backButton.onClick = [this] { setView (true); };
+    cube = std::make_unique<CabCubeView> (p, cabIndex);
+    addChildComponent (cube.get());
+    addAndMakeVisible (cubeButton);
+    cubeButton.setTooltip ("Show the cabinet as a 3D cube: mics on all six faces");
+    cubeButton.onClick = [this]
+    {
+        cubeMode = ! cubeMode;
+        cubeButton.setToggleState (cubeMode, dontSendNotification);
+        cube->setVisible (cubeMode);
+        resized();
+        repaint();
+    };
     for (auto* c : std::initializer_list<Component*> { &micALabel, &micBLabel, &roomLabel, &typeA, &typeB, &levelA, &levelB,
                                                        &roomKnob, &roomDistKnob, &micBOnSwitch, &phaseB, &align, &stereo })
         addAndMakeVisible (c);
@@ -356,6 +368,8 @@ void CabRoomView::resized()
     frontArea = left.toFloat();
     frontButton.setBounds ((int) frontArea.getX() + 4, (int) frontArea.getY() + 2, 58, 22);
     backButton.setBounds ((int) frontArea.getX() + 64, (int) frontArea.getY() + 2, 58, 22);
+    cubeButton.setBounds ((int) frontArea.getX() + 124, (int) frontArea.getY() + 2, 46, 22);
+    if (cube) cube->setBounds (frontArea.toNearestInt().withTrimmedTop (28));
 
     sideArea = r.removeFromTop (r.getHeight() * 32 / 100).toFloat();
     r.removeFromTop (6);

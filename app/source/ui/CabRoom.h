@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "Widgets.h"
+#include "CabCube.h"
 #include "vf/dsp/CabMics.h"
 #include "../PluginProcessor.h"
 
@@ -75,7 +76,9 @@ private:
     ChoiceBox typeA, typeB, faceA, faceB, environment;
     LabeledKnob levelA, levelB, roomKnob, roomDistKnob;
     LedSwitch micBOnSwitch, phaseB, align, stereo;
-    juce::TextButton frontButton { "FRONT" }, backButton { "BACK" };
+    juce::TextButton frontButton { "FRONT" }, backButton { "BACK" }, cubeButton { "3D" };
+    std::unique_ptr<CabCubeView> cube;   // the six-face view, shown in the front area when 3D is on
+    bool cubeMode = false;
     bool viewBack = false;      // which side of the cab the front view is showing
 
     // live response curve (message-thread mirror of the audio DSP)
