@@ -25,6 +25,8 @@ public:
     /** Loads a .nam file. Not real-time: call from the message thread or a loader thread.
         On failure the previously loaded model stays in place and `error` says why. */
     bool loadFile (const std::string& path, std::string& error);
+    /** Frees models the audio thread has retired. Call from the UI timer: without it the loader goes silent after 8 switches. */
+    void collectGarbage() { engine.collectGarbage(); }
     /** Removes the model (the block passes audio through). */
     void clear();
 

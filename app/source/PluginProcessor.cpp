@@ -596,6 +596,10 @@ FileSlotStatus ViridianForgeProcessor::getIrStatus (int slot, int cab) const    
 void ViridianForgeProcessor::housekeeping()
 {
     engine.collectGarbage();
+   #if VF_WITH_NAM
+    for (auto& fx : slotFx)
+        if (auto* nl = dynamic_cast<NamLoaderFx*> (fx.get())) nl->collectGarbage();
+   #endif
     for (auto& a : amps) a->housekeeping();
 }
 
